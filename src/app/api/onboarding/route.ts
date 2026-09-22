@@ -15,6 +15,7 @@ export async function POST(req: Request) {
     categories?: { name: string; monthlyCap: number }[];
     geminiApiKey?: string;
     reminderHour?: number;
+    finalize?: boolean;
   };
 
   const store = getStore();
@@ -45,6 +46,8 @@ export async function POST(req: Request) {
     }
   }
 
-  await store.updateUser(user.id, { onboardingDone: true });
+  // Only the final onboarding submit closes setup. Saving a key or changing a
+  // reminder hour mid-flow must not mark the account as fully set up.
+  if (body.finalize) await store.updateUser(user.id, { onboardingDone: true });
   return NextResponse.json({ ok: true });
 }

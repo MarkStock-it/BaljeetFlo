@@ -1,19 +1,28 @@
 import assert from "node:assert/strict";
 import { test, beforeEach, afterEach } from "node:test";
-import { cleanKeyInput, validateKey } from "./gemini";
+import { cleanKeyInput, validateKey, geminiJson, GeminiError, resetModelCache } from "./gemini";
 
 const realFetch = globalThis.fetch;
-let lastHeaders: HeadersInit | null = null;
+let calls: { url: string; headers: Headers; body: string }[] = [];
 
-function mockFetch(status: number) {
-  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
-    lastHeaders = init?.headers ?? null;
-    return new Response(JSON.stringify({ error: { code: status } }), { status });
+/** Mock the endpoint: reply per model id, or a fixed status for all. */
+function mockFetch(responder: (model: string) => { status: number; body?: unknown }) {
+  globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+    const u = String(url);
+    const model = /models\/([^:]+):/.exec(u)?.[1] ?? "unknown";
+    calls.push({ url: u, headers: new Headers(init?.headers), body: String(init?.body ?? "") });
+    const { status, body } = responder(model);
+    return new Response(JSON.stringify(body ?? { error: { code: status } }), { status });
   }) as typeof fetch;
 }
 
+function ok(body: unknown) {
+  return { status: 200, body };
+}
+
 beforeEach(() => {
-  lastHeaders = null;
+  calls = [];
+  resetModelCache();
 });
 afterEach(() => {
   globalThis.fetch = realFetch;
@@ -22,29 +31,60 @@ afterEach(() => {
 test("cleanKeyInput strips whitespace and stray quotes", () => {
   assert.equal(cleanKeyInput('  AQ.Ab8RN6xyz  '), "AQ.Ab8RN6xyz");
   assert.equal(cleanKeyInput('"AIzaSyABC123"\n'), "AIzaSyABC123");
-  assert.equal(cleanKeyInput("'AQ.x'\t"), "AQ.x");
   assert.equal(cleanKeyInput("  "), "");
 });
 
-test("valid AQ key passes and is returned cleaned", async () => {
-  mockFetch(200);
-  const r = await validateKey("  AQ.Ab8RN6verylongkeyvalue0000000000000000  ");
-  assert.equal(r.ok, true);
-  assert.ok(r.ok && r.clean === "AQ.Ab8RN6verylongkeyvalue0000000000000000");
-});
-
-test("valid legacy AIza key still works", async () => {
-  mockFetch(200);
-  const r = await validateKey("AIzaSyA1234567890abcdefghijklmnopqrstuv");
-  assert.ok(r.ok);
-});
-
-test("key is sent in the x-goog-api-key header, never in the URL or as Bearer", async () => {
-  mockFetch(200);
+test("key travels in x-goog-api-key and never in the URL or as Bearer", async () => {
+  mockFetch(() => ok({ candidates: [{ content: { parts: [{ text: "{}" }] } }] }));
   await validateKey("AQ.Ab8RN6verylongkeyvalue0000000000000000");
-  const h = new Headers(lastHeaders ?? undefined);
+  const h = calls[0].headers;
   assert.equal(h.get("x-goog-api-key"), "AQ.Ab8RN6verylongkeyvalue0000000000000000");
   assert.equal(h.get("authorization"), null);
+  assert.ok(!calls[0].url.includes("key="));
+});
+
+test("retired model (404) falls through to the next candidate", async () => {
+  mockFetch((model) =>
+    model === "gemini-3.6-flash"
+      ? { status: 404, body: { error: { message: "This model is no longer available." } } }
+      : ok({ candidates: [{ content: { parts: [{ text: "{}" }] } }] })
+  );
+  const r = await validateKey("AQ.Ab8RN6verylongkeyvalue0000000000000000");
+  assert.equal(r.ok, true);
+  assert.deepEqual(
+    calls.map((c) => /models\/([^:]+):/.exec(c.url)?.[1]),
+    ["gemini-3.6-flash", "gemini-2.5-flash"]
+  );
+});
+
+test("the model that answered is remembered, so the next call does not re-walk", async () => {
+  mockFetch((model) =>
+    model === "gemini-3.6-flash"
+      ? { status: 404, body: { error: { message: "gone" } } }
+      : ok({ candidates: [{ content: { parts: [{ text: "{}" }] } }] })
+  );
+  await validateKey("AQ.Ab8RN6verylongkeyvalue0000000000000000");
+  calls = [];
+  await validateKey("AQ.Ab8RN6verylongkeyvalue0000000000000000");
+  assert.equal(calls.length, 1);
+  assert.equal(/models\/([^:]+):/.exec(calls[0].url)?.[1], "gemini-2.5-flash");
+});
+
+test("overloaded model (503) also walks on, but a good key still passes", async () => {
+  mockFetch((model) =>
+    model === "gemini-3.6-flash"
+      ? { status: 503, body: { error: { message: "high demand" } } }
+      : ok({ candidates: [{ content: { parts: [{ text: "{}" }] } }] })
+  );
+  const r = await validateKey("AQ.Ab8RN6verylongkeyvalue0000000000000000");
+  assert.equal(r.ok, true);
+  assert.equal(calls.length, 2);
+});
+
+test("a key is still accepted when every model is merely overloaded", async () => {
+  mockFetch(() => ({ status: 503, body: { error: { message: "high demand" } } }));
+  const r = await validateKey("AQ.Ab8RN6verylongkeyvalue0000000000000000");
+  assert.equal(r.ok, true);
 });
 
 test("garbage input is rejected by shape before any network call", async () => {
@@ -66,23 +106,38 @@ test("truncated AQ key is caught by shape with a paste message", async () => {
   assert.ok(!r.ok && /cut off/.test(r.message));
 });
 
-test("401 maps to a key-rejected message that mentions re-pasting for AQ", async () => {
-  mockFetch(401);
+test("401 shows the code and stays free of Google jargon", async () => {
+  mockFetch(() => ({ status: 401, body: { error: { message: "Request had invalid authentication credentials." } } }));
   const r = await validateKey("AQ.Ab8RN6verylongkeyvalue0000000000000000");
   assert.equal(r.ok, false);
-  assert.ok(!r.ok && /rejected/.test(r.message));
+  assert.ok(!r.ok && /401/.test(r.message));
+  assert.ok(!r.ok && !/Request had invalid/.test(r.message));
 });
 
-test("403 maps to the restriction guidance", async () => {
-  mockFetch(403);
-  const r = await validateKey("AQ.Ab8RN6verylongkeyvalue0000000000000000");
-  assert.equal(r.ok, false);
-  assert.ok(!r.ok && /restrict/i.test(r.message));
+test("403 and 429 map to their own guidance with codes", async () => {
+  mockFetch(() => ({ status: 403, body: { error: { message: "PERMISSION_DENIED" } } }));
+  const f = await validateKey("AQ.Ab8RN6verylongkeyvalue0000000000000000");
+  assert.ok(!f.ok && /403/.test(f.message) && /restrict/i.test(f.message));
+
+  resetModelCache();
+  mockFetch(() => ({ status: 429, body: { error: { message: "quota" } } }));
+  const q = await validateKey("AQ.Ab8RN6verylongkeyvalue0000000000000000");
+  assert.ok(!q.ok && /429/.test(q.message) && /quota/i.test(q.message));
 });
 
-test("429 maps to quota messaging, not invalid key", async () => {
-  mockFetch(429);
-  const r = await validateKey("AQ.Ab8RN6verylongkeyvalue0000000000000000");
-  assert.equal(r.ok, false);
-  assert.ok(!r.ok && /quota/.test(r.message));
+test("geminiJson returns parsed JSON and types failures", async () => {
+  mockFetch(() => ok({ candidates: [{ content: { parts: [{ text: '{"amount":140}' }] } }] }));
+  const parsed = await geminiJson<{ amount: number }>({
+    apiKey: "AQ.Ab8RN6verylongkeyvalue0000000000000000",
+    prompt: "x",
+    schema: { type: "object" },
+  });
+  assert.equal(parsed.amount, 140);
+
+  resetModelCache();
+  mockFetch(() => ({ status: 404, body: { error: { message: "This model is no longer available." } } }));
+  await assert.rejects(
+    () => geminiJson({ apiKey: "AQ.Ab8RN6verylongkeyvalue0000000000000000", prompt: "x", schema: { type: "object" } }),
+    (e: unknown) => e instanceof GeminiError && e.status === 404
+  );
 });

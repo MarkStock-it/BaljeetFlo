@@ -59,6 +59,9 @@ export default function OnboardingPage() {
         hardSavingsGoal: Number(savings) || 0,
         fixedCosts: fixed.filter((f) => f.name && f.amount).map((f) => ({ name: f.name, amount: Number(f.amount) })),
         categories: cats.filter((c) => c.name && c.monthlyCap).map((c) => ({ name: c.name, monthlyCap: Number(c.monthlyCap) })),
+        // Only this final submit finishes onboarding. Checking a key mid-flow
+        // must not mark the account as set up.
+        finalize: true,
       }),
     });
     setBusy(false);
@@ -110,22 +113,21 @@ export default function OnboardingPage() {
                   aria-label="Cost name"
                   onChange={(e) => setFixed(fixed.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
                 />
+                {/* Same field as the budget editor: short placeholder in a
+                    field wide enough for it, so no text ever runs into the
+                    remove button sitting next to it. */}
                 <input
                   inputMode="decimal"
-                  className="num w-20 shrink-0 bg-transparent text-right text-[16px] outline-none"
+                  className="cap-input w-24 shrink-0"
                   value={f.amount}
                   placeholder="0"
                   aria-label="Cost amount"
                   onChange={(e) => setFixed(fixed.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))}
                 />
-                <button
-                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
-                  style={{ color: "var(--ink-3)" }}
+                <RemoveButton
+                  label={`Remove ${f.name || "cost"}`}
                   onClick={() => setFixed(fixed.filter((_, j) => j !== i))}
-                  aria-label={`Remove ${f.name || "cost"}`}
-                >
-                  <TrashIcon size={16} />
-                </button>
+                />
               </div>
             ))}
             <button className="chip" onClick={() => setFixed([...fixed, { name: "", amount: "" }])}>
@@ -175,20 +177,16 @@ export default function OnboardingPage() {
                 />
                 <input
                   inputMode="decimal"
-                  className="num w-20 shrink-0 bg-transparent text-right text-[16px] outline-none"
+                  className="cap-input w-24 shrink-0"
                   value={c.monthlyCap}
-                  placeholder="Monthly cap"
-                  aria-label="Category cap"
+                  placeholder="0"
+                  aria-label={`${c.name || "Category"} monthly cap`}
                   onChange={(e) => setCats(cats.map((x, j) => (j === i ? { ...x, monthlyCap: e.target.value } : x)))}
                 />
-                <button
-                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
-                  style={{ color: "var(--ink-3)" }}
+                <RemoveButton
+                  label={`Remove ${c.name || "category"}`}
                   onClick={() => setCats(cats.filter((_, j) => j !== i))}
-                  aria-label={`Remove ${c.name || "category"}`}
-                >
-                  <TrashIcon size={16} />
-                </button>
+                />
               </div>
             ))}
             <button className="chip" onClick={() => setCats([...cats, { name: "", monthlyCap: "" }])}>
@@ -221,8 +219,12 @@ export default function OnboardingPage() {
             aria-label="Gemini API key"
           />
           <div className="mt-3 flex items-center gap-3">
-            <button className="btn-ghost text-sm" disabled={!apiKey.trim() || busy} onClick={validateAndSaveKey}>
-              Check it
+            <button
+              className="btn-ghost w-[104px] shrink-0 text-sm"
+              disabled={!apiKey.trim() || busy}
+              onClick={validateAndSaveKey}
+            >
+              {busy ? "Checking" : "Check it"}
             </button>
             {keyState === "valid" && (
               <span className="good-text inline-flex items-center gap-1.5 text-sm font-medium">
@@ -230,8 +232,17 @@ export default function OnboardingPage() {
                 Works
               </span>
             )}
-            {keyState === "invalid" && <span className="warn-text text-sm">{keyError}</span>}
           </div>
+          {/* Result text goes below the row, never beside it: a long message
+              used to squeeze the button and shift its width mid-click. */}
+          {keyState === "invalid" && keyError && (
+            <p className="warn-text mt-2.5 text-[14px] leading-relaxed">{keyError}</p>
+          )}
+          <p className="sub mt-5 text-[13px] leading-relaxed">
+            This step is optional. Without a key BudgetFlow still logs your spending using built-in
+            parsing, and the AI simply adds better wording, sharper categories and weekly patterns.
+            You can add or replace a key any time in Setup.
+          </p>
         </>
       )}
 
@@ -250,12 +261,26 @@ export default function OnboardingPage() {
             Continue
           </button>
         ) : (
-          <button className="btn-primary flex-1" onClick={finish} disabled={keyState !== "valid" || busy}>
+          <button className="btn-primary flex-1" onClick={finish} disabled={busy}>
             Start
           </button>
         )}
       </div>
       {error && <p className="warn-text mt-3 text-sm">{error}</p>}
     </main>
+  );
+}
+
+/** Round ghost remove control, identical to the budget editor's. */
+function RemoveButton({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <button
+      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+      style={{ color: "var(--ink-3)" }}
+      onClick={onClick}
+      aria-label={label}
+    >
+      <TrashIcon size={16} />
+    </button>
   );
 }
