@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { FilterIcon, RepeatIcon, XIcon } from "@/components/icons";
 import { dayKey } from "@/lib/day";
+import { useBudgetSnapshot } from "@/lib/budget-snapshot";
 
 type Tx = {
   id: string;
@@ -29,7 +30,9 @@ export default function HistoryPage() {
   const [rows, setRows] = useState<Tx[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
-  const [cats, setCats] = useState<Cat[]>([]);
+  // Category list comes from the shared snapshot, so it is already there on
+  // arrival instead of appearing after a fetch.
+  const cats: Cat[] = useBudgetSnapshot()?.categories ?? [];
   const [showFilters, setShowFilters] = useState(false);
   const [fCat, setFCat] = useState("");
   const [fMin, setFMin] = useState("");
@@ -53,13 +56,6 @@ export default function HistoryPage() {
     },
     [fCat, fMin, fMax]
   );
-
-  useEffect(() => {
-    fetch("/api/budget")
-      .then((r) => r.json())
-      .then((b) => setCats(b.categories ?? []))
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     load(0);

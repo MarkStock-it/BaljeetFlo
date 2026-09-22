@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   CheckIcon,
@@ -13,20 +12,7 @@ import {
 } from "@/components/icons";
 import { TradeOffSandbox } from "@/components/TradeOffSandbox";
 import { calculateSafeToSpend, type Category } from "@/lib/engine/budget";
-
-type Snapshot = {
-  income: number;
-  hardSavingsGoal: number;
-  spentToday: number;
-  safeToSpend: number;
-  hasGeminiKey: boolean;
-  planReserved: number;
-  monthTransactions: number;
-  categories: { id: string; name: string; flexible: boolean; cap: number; spent: number }[];
-  allocation: { flexiblePool: number; allocated: number; over: number; unallocated: number; ok: boolean };
-  plans: { id: string; name: string; targetAmount: number; monthlySetAside: number }[];
-  recurring: { id: string; name: string; amount: number }[];
-};
+import { useBudgetSnapshot } from "@/lib/budget-snapshot";
 
 const peso = (n: number) =>
   `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -43,14 +29,7 @@ const EXAMPLES = [
 ];
 
 export default function GuidePage() {
-  const [snap, setSnap] = useState<Snapshot | null>(null);
-
-  useEffect(() => {
-    fetch("/api/budget")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setSnap)
-      .catch(() => {});
-  }, []);
+  const snap = useBudgetSnapshot();
 
   const cats: Category[] = (snap?.categories ?? []).map((c) => ({
     id: c.id,

@@ -11,6 +11,10 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  // cover is what makes env(safe-area-inset-*) report anything at all. Without
+  // it the bottom inset is 0 on iPhone, so the tab bar sat under the home
+  // indicator. The shell then pads itself by those insets.
+  viewportFit: "cover",
   themeColor: "#fafaf8",
 };
 

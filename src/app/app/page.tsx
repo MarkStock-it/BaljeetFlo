@@ -16,6 +16,7 @@ import {
 } from "@/components/icons";
 import { safeUuid } from "@/lib/uuid";
 import { CashPile } from "@/components/CashPile";
+import { refreshBudget, useBudgetSnapshot } from "@/lib/budget-snapshot";
 
 type Card = {
   type:
@@ -65,16 +66,6 @@ type ReceiptDraft = {
 
 type Cat = { id: string; name: string; flexible?: boolean };
 
-type Snapshot = {
-  hasGeminiKey?: boolean;
-  safeToSpend: number;
-  spentToday: number;
-  reminderHour?: number;
-  recurringCommitted?: number;
-  recurring?: { id: string; name: string; amount: number }[];
-  stack: { pct: number; blocks: number; streakDays: number };
-};
-
 const peso = (n: number) =>
   `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -86,8 +77,10 @@ const monthLabel = (day: string) => {
 };
 
 export default function ChatHome() {
-  const [snap, setSnap] = useState<Snapshot | null>(null);
-  const [cats, setCats] = useState<Cat[]>([]);
+  // Shared across tabs: this is the number the user checks before every
+  // decision, so it renders from cache instead of blinking to zero.
+  const snap = useBudgetSnapshot();
+  const cats: Cat[] = snap?.categories ?? [];
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [input, setInput] = useState("");
@@ -102,13 +95,7 @@ export default function ChatHome() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(() => {
-    fetch("/api/budget")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        setSnap(d);
-        if (d?.categories) setCats(d.categories);
-      })
-      .catch(() => {});
+    void refreshBudget();
   }, []);
 
   useEffect(() => {
@@ -124,12 +111,9 @@ export default function ChatHome() {
       }).catch(() => {});
 
       // 2. Budget snapshot, which also carries the reminder hour.
-      const snapshot: Snapshot | null = await fetch("/api/budget")
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null);
+      const snapshot = await refreshBudget();
       if (!alive) return;
       if (snapshot) {
-        setSnap(snapshot);
         // 3. Evening check-in at the hour chosen in Setup (server dedupes per day).
         const hour = typeof snapshot.reminderHour === "number" ? snapshot.reminderHour : 19;
         if (new Date().getHours() >= hour) {

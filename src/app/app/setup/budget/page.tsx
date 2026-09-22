@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -17,14 +17,7 @@ import {
 import { AllocationMeter } from "@/components/AllocationMeter";
 import { allocationStatus, budgetPool, coverShortfall } from "@/lib/engine/plans";
 import { safeUuid } from "@/lib/uuid";
-
-type Snapshot = {
-  income: number;
-  hardSavingsGoal: number;
-  categories: { id: string; name: string; flexible: boolean; cap: number; spent: number }[];
-  planReserved: number;
-  plans: { id: string; name: string; monthlySetAside: number }[];
-};
+import { refreshBudget, useBudgetSnapshot, type BudgetSnapshot } from "@/lib/budget-snapshot";
 
 type FixedRow = { key: string; id?: string; name: string; amount: string; spent: number };
 type FlexRow = { key: string; id?: string; name: string; cap: string; spent: number };
@@ -38,7 +31,7 @@ const num = (s: string) => {
 
 export default function BudgetEditorPage() {
   const router = useRouter();
-  const [snap, setSnap] = useState<Snapshot | null>(null);
+  const snap = useBudgetSnapshot();
   const [income, setIncome] = useState("");
   const [savings, setSavings] = useState("");
   const [fixed, setFixed] = useState<FixedRow[]>([]);
@@ -48,29 +41,32 @@ export default function BudgetEditorPage() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const load = useCallback(() => {
-    fetch("/api/budget")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: Snapshot | null) => {
-        if (!d) return;
-        setSnap(d);
-        setIncome(String(d.income));
-        setSavings(String(d.hardSavingsGoal));
-        setFixed(
-          d.categories
-            .filter((c) => !c.flexible)
-            .map((c) => ({ key: c.id, id: c.id, name: c.name, amount: String(c.cap), spent: c.spent }))
-        );
-        setFlex(
-          d.categories
-            .filter((c) => c.flexible)
-            .map((c) => ({ key: c.id, id: c.id, name: c.name, cap: String(c.cap), spent: c.spent }))
-        );
-      })
-      .catch(() => {});
-  }, []);
+  /**
+   * The form is editable, so it is seeded once from the shared snapshot and
+   * then owned by the user. A later background refresh of the snapshot must
+   * never overwrite what they are typing.
+   */
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current || !snap) return;
+    seeded.current = true;
+    seedFrom(snap);
+  }, [snap]);
 
-  useEffect(load, [load]);
+  function seedFrom(d: BudgetSnapshot) {
+    setIncome(String(d.income));
+    setSavings(String(d.hardSavingsGoal));
+    setFixed(
+      d.categories
+        .filter((c) => !c.flexible)
+        .map((c) => ({ key: c.id, id: c.id, name: c.name, amount: String(c.cap), spent: c.spent }))
+    );
+    setFlex(
+      d.categories
+        .filter((c) => c.flexible)
+        .map((c) => ({ key: c.id, id: c.id, name: c.name, cap: String(c.cap), spent: c.spent }))
+    );
+  }
 
   const fixedTotal = fixed.reduce((s, f) => s + num(f.amount), 0);
   const flexTotal = flex.reduce((s, c) => s + num(c.cap), 0);
@@ -143,6 +139,9 @@ export default function BudgetEditorPage() {
       return;
     }
     setSaved(true);
+    // The saved rules change the number everywhere, so update the shared copy
+    // before the user lands back on Setup.
+    void refreshBudget();
     setTimeout(() => router.push("/app/setup"), 650);
   }
 

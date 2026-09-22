@@ -13,6 +13,7 @@ import {
 } from "@/components/icons";
 import { allocationStatus } from "@/lib/engine/plans";
 import { dayKey, parseDay } from "@/lib/day";
+import { refreshBudget, useBudgetSnapshot } from "@/lib/budget-snapshot";
 
 type Projection = {
   saved: number;
@@ -123,7 +124,9 @@ type Prefill = { name: string; target: string; monthly: string; deadline: string
 export default function PlansPage() {
   const [prefill, setPrefill] = useState<Prefill | null>(null);
   const [plans, setPlans] = useState<ApiPlan[] | null>(null);
-  const [budget, setBudget] = useState<Budget | null>(null);
+  // Shared snapshot: the caps this sheet reads are already in memory, so the
+  // screen never opens against an empty budget.
+  const budget = useBudgetSnapshot();
   const [schedules, setSchedules] = useState<Sched[] | null>(null);
   const [schedSheet, setSchedSheet] = useState<Sched | "new" | null>(null);
   const [editing, setEditing] = useState<ApiPlan | null>(null);
@@ -131,13 +134,12 @@ export default function PlansPage() {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [p, b, s] = await Promise.all([
+    const [p, s] = await Promise.all([
       fetch("/api/plans").then((r) => (r.ok ? r.json() : { plans: [] })),
-      fetch("/api/budget").then((r) => (r.ok ? r.json() : null)),
       fetch("/api/recurring").then((r) => (r.ok ? r.json() : { recurring: [] })),
     ]);
     setPlans(p.plans ?? []);
-    setBudget(b);
+    void refreshBudget();
     setSchedules(s.recurring ?? []);
   }, []);
 

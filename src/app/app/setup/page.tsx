@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AllocationMeter } from "@/components/AllocationMeter";
+import { refreshBudget, updateBudgetSnapshot, useBudgetSnapshot } from "@/lib/budget-snapshot";
 import {
   BookIcon,
   CalendarIcon,
@@ -18,31 +19,6 @@ import {
   WalletIcon,
 } from "@/components/icons";
 
-type Category = { id: string; name: string; flexible: boolean; cap: number; spent: number };
-type PlanSummary = { id: string; name: string; targetAmount: number; monthlySetAside: number };
-type Allocation = {
-  pool: number;
-  flexiblePool: number;
-  allocated: number;
-  over: number;
-  unallocated: number;
-  ok: boolean;
-};
-type Snapshot = {
-  income: number;
-  hardSavingsGoal: number;
-  safeToSpend: number;
-  spentToday: number;
-  reminderHour: number;
-  hasGeminiKey: boolean;
-  categories: Category[];
-  allocation: Allocation;
-  plans: PlanSummary[];
-  planReserved: number;
-  recurring: { id: string; name: string; amount: number }[];
-  /** What the rest of this month still owes to scheduled payments. */
-  recurringCommitted: number;
-};
 type KeyInfo = { configured: boolean; verified?: boolean; broken?: boolean };
 type GuardianInfo = { url: string; code: string };
 
@@ -54,7 +30,7 @@ const HOURS = [18, 19, 20, 21];
 
 export default function SetupPage() {
   const router = useRouter();
-  const [snap, setSnap] = useState<Snapshot | null>(null);
+  const snap = useBudgetSnapshot();
   const [keyInfo, setKeyInfo] = useState<KeyInfo | null>(null);
   const [guardian, setGuardian] = useState<GuardianInfo | null>(null);
   const [newKey, setNewKey] = useState("");
@@ -63,10 +39,7 @@ export default function SetupPage() {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
-    fetch("/api/budget")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setSnap)
-      .catch(() => {});
+    void refreshBudget();
     fetch("/api/key-status")
       .then((r) => (r.ok ? r.json() : null))
       .then(setKeyInfo)
@@ -101,7 +74,7 @@ export default function SetupPage() {
   }
 
   async function setHour(hour: number) {
-    setSnap((s) => (s ? { ...s, reminderHour: hour } : s));
+    updateBudgetSnapshot({ reminderHour: hour });
     await fetch("/api/onboarding", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

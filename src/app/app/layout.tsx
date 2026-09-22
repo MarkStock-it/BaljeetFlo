@@ -46,16 +46,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       .catch(() => router.replace("/"));
   }, [router]);
 
-  if (!checked) return <main className="min-h-[100dvh]" />;
+  if (!checked) return <main className="h-[100dvh]" />;
 
   return (
-    <div className="flex min-h-[100dvh] flex-col">
-      {/* A flex column so a page can fill exactly the space above the tab bar
-          (Chat does) while the others scroll normally. The 92px is the tab bar
-          plus the home-indicator inset. */}
-      <div className="flex min-h-0 flex-1 flex-col pb-[92px]">{children}</div>
+    <div
+      className="flex h-[100dvh] flex-col overflow-hidden"
+      style={{ paddingTop: "env(safe-area-inset-top)" }}
+    >
+      {/* The page owns the space above the bar and scrolls inside it. The bar
+          is a normal flex child rather than a fixed overlay, so the space it
+          takes is always its real height plus the home-indicator inset, never
+          a guessed number that left a dead band above the labels. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+        {children}
+      </div>
       <nav
-        className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md border-t backdrop-blur-xl"
+        className="z-40 shrink-0 border-t backdrop-blur-xl"
         style={{
           borderColor: "var(--hairline)",
           background: "var(--surface)",
