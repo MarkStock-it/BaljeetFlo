@@ -199,7 +199,7 @@ export class MemoryStore implements DataStore {
   async getTransaction(id: string) {
     return this.txs.find((t) => t.id === id) ?? null;
   }
-  async updateTransaction(id: string, patch: Partial<Pick<TxRow, "categoryId" | "flagged">>) {
+  async updateTransaction(id: string, patch: Partial<Pick<TxRow, "categoryId" | "flagged" | "vendor">>) {
     const t = this.txs.find((x) => x.id === id);
     if (t) Object.assign(t, patch);
   }
@@ -215,8 +215,22 @@ export class MemoryStore implements DataStore {
     this.tradeOffs.push({ ...t, createdAt: new Date() });
   }
 
+  async undoTradeOffs(transactionId: string) {
+    const mine = this.tradeOffs.filter(
+      (t): t is { transactionId: string; moves: { fromCategoryId: string; amount: number }[] } =>
+        (t as { transactionId?: string }).transactionId === transactionId
+    );
+    this.tradeOffs = this.tradeOffs.filter(
+      (t) => (t as { transactionId?: string }).transactionId !== transactionId
+    );
+    return mine.flatMap((t) => t.moves);
+  }
+
   async addChatMessage(m: ChatRow) {
     this.chats.push(m);
+  }
+  async deleteChatMessage(id: string) {
+    this.chats = this.chats.filter((c) => c.id !== id);
   }
   async listChatMessages(userId: string, limit = 200) {
     return this.chats

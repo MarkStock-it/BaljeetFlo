@@ -79,6 +79,8 @@ html,
 body {
   background: var(--paper);
   color: var(--ink);
+  max-width: 100%;
+  overflow-x: hidden;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
     Inter, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -86,9 +88,38 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* The authenticated shell owns its scrolling surface. Lock the document
+   itself so Safari cannot drag the entire app past its top or bottom. */
+html.app-mode,
+body.app-mode {
+  height: 100%;
+  overflow: hidden;
+}
+
 button {
   touch-action: manipulation;
 }
+
+/* App surfaces should scroll like native views, not like browser documents. */
+.app-shell,
+.app-scroll {
+  overscroll-behavior: none;
+}
+
+.app-scroll,
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-scroll::-webkit-scrollbar,
+.scrollbar-none::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 
 input,
 textarea {
@@ -381,6 +412,12 @@ textarea {
     background: var(--scrim);
     animation: fade 0.2s ease both;
   }
+  .sheet-panel::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+
   .sheet-panel {
     margin: 0 auto 16px;
     width: 100%;
@@ -389,7 +426,10 @@ textarea {
        its own save button. */
     max-height: calc(100dvh - 32px);
     overflow-y: auto;
-    overscroll-behavior: contain;
+    overscroll-behavior: none;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-overflow-scrolling: touch;
     padding: 24px;
     background: var(--surface-solid);
     border: 1px solid var(--hairline);

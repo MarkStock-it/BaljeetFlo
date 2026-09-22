@@ -36,6 +36,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
+    document.documentElement.classList.add("app-mode");
+    document.body.classList.add("app-mode");
+    return () => {
+      document.documentElement.classList.remove("app-mode");
+      document.body.classList.remove("app-mode");
+    };
+  }, []);
+
+  useEffect(() => {
     fetch("/api/auth")
       .then((r) => r.json())
       .then((d) => {
@@ -50,14 +59,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className="flex h-[100dvh] flex-col overflow-hidden"
+      className="app-shell flex h-[100dvh] min-h-0 max-h-[100dvh] flex-col overflow-hidden"
       style={{ paddingTop: "env(safe-area-inset-top)" }}
     >
       {/* The page owns the space above the bar and scrolls inside it. The bar
           is a normal flex child rather than a fixed overlay, so the space it
           takes is always its real height plus the home-indicator inset, never
           a guessed number that left a dead band above the labels. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+      <div
+        className={`app-scroll flex min-h-0 flex-1 flex-col overflow-x-hidden overscroll-none ${
+          pathname === "/app" ? "overflow-hidden" : "overflow-y-auto"
+        }`}
+      >
         {children}
       </div>
       <nav

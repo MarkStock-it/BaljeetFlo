@@ -24,7 +24,7 @@ declare global {
  * today would be "not a function" until a manual restart. Bumping the stamp
  * quietly rebuilds the store instead.
  */
-const STORE_VERSION = 3;
+const STORE_VERSION = 5;
 
 function hasDbCredentials() {
   return Boolean(

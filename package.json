@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "tsx --test src/lib/engine/*.test.ts src/lib/ai/*.test.ts",
+    "test": "tsx --test src/lib/engine/*.test.ts src/lib/ai/*.test.ts src/lib/store/*.test.ts",
     "check": "tsc --noEmit && npm test && next build",
     "harness": "tsx scripts/cashpile-harness.tsx"
   },

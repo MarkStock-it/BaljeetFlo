@@ -75,6 +75,14 @@ export const SwapIcon = ({ size = 16, className }: P) => (
   </svg>
 );
 
+/** Second look: the one tap that sends a reading back to be re-read. */
+export const RecheckIcon = ({ size = 16, className }: P) => (
+  <svg {...base(size)} className={className}>
+    <path d="M19.4 11.2a7.5 7.5 0 1 0-2.1 5.6" />
+    <path d="M19.6 5.4v5.3h-5.3" />
+  </svg>
+);
+
 export const XIcon = ({ size = 16, className }: P) => (
   <svg {...base(size)} className={className}>
     <path d="M6 6l12 12M18 6L6 18" />

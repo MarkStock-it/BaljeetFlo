@@ -13,6 +13,7 @@ import {
   BookIcon,
   TargetIcon,
   RepeatIcon,
+  RecheckIcon,
 } from "@/components/icons";
 import { safeUuid } from "@/lib/uuid";
 import { CashPile } from "@/components/CashPile";
@@ -25,8 +26,12 @@ type Card = {
     | "clarify_chip"
     | "receipt_draft"
     | "plan_draft"
-    | "recurring_draft";
+    | "recurring_draft"
+    | "assumption";
   txId?: string;
+  // assumption: what the local reader assumed, and the message it read
+  assumed?: string;
+  original?: string;
   name?: string;
   targetAmount?: number;
   monthlySetAside?: number;
@@ -53,7 +58,14 @@ type Card = {
   draft?: ReceiptDraft;
 };
 
-type Msg = { id: string; role: "user" | "assistant"; text: string; card?: Card };
+type Msg = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  card?: Card;
+  /** Additional cards belong to this same response, not separate bubbles. */
+  extraCards?: Card[];
+};
 
 type SheetStep = "choose" | "camera" | "draft";
 
@@ -85,7 +97,7 @@ export default function ChatHome() {
   const [loaded, setLoaded] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [listening, setListening] = useState(false);
+  const [dictationHint, setDictationHint] = useState(false);
   const [adjusting, setAdjusting] = useState<Card | null>(null);
   const [sheet, setSheet] = useState<SheetStep | null>(null);
   const [pendingDraft, setPendingDraft] = useState<ReceiptDraft | null>(null);
@@ -93,6 +105,7 @@ export default function ChatHome() {
   const [scheduledOn, setScheduledOn] = useState<Record<string, boolean>>({});
   const feedRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(() => {
     void refreshBudget();
@@ -145,13 +158,14 @@ export default function ChatHome() {
                 txId?: string;
                 plan?: Omit<Card, "type">;
                 recurring?: Omit<Card, "type">;
+                assumption?: Omit<Card, "type">;
+                cards?: Card[];
               };
-            }) => ({
-              id: m.id,
-              role: m.role,
-              text: m.payload?.text ?? "",
-              card:
-                m.payload?.before !== undefined
+            }) => {
+              const persisted = m.payload?.cards;
+              const card = persisted?.[0]
+                ? persisted[0]
+                : m.payload?.before !== undefined
                   ? {
                       type: "log_card" as const,
                       before: m.payload.before,
@@ -162,8 +176,12 @@ export default function ChatHome() {
                     ? { ...m.payload.plan, type: "plan_draft" as const }
                     : m.payload?.recurring
                       ? { ...m.payload.recurring, type: "recurring_draft" as const }
-                      : undefined,
-            })
+                      : undefined;
+              const extraCards = persisted?.slice(1) ?? (m.payload?.assumption
+                ? [{ ...m.payload.assumption, type: "assumption" as const }]
+                : undefined);
+              return { id: m.id, role: m.role, text: m.payload?.text ?? "", card, extraCards };
+            }
           );
         setMessages(rows);
         setLoaded(true);
@@ -181,34 +199,58 @@ export default function ChatHome() {
   }, [messages, busy]);
 
   function pushAssistant(reply: string, cards: Card[] | undefined) {
-    const first: Msg = { id: safeUuid(), role: "assistant", text: reply };
-    if (cards?.length) {
-      first.card = cards[0];
-      setMessages((m) => [
-        ...m,
-        first,
-        ...cards.slice(1).map((c) => ({ id: safeUuid(), role: "assistant" as const, text: "", card: c })),
-      ]);
-    } else {
-      setMessages((m) => [...m, first]);
-    }
+    const first: Msg = { id: safeUuid(), role: "assistant", text: reply, card: cards?.[0] };
+    setMessages((m) => [
+      ...m,
+      first,
+      ...(cards ?? []).slice(1).map((card) => ({
+        id: safeUuid(),
+        role: "assistant" as const,
+        text: "",
+        card,
+      })),
+    ]);
   }
 
-  async function send(text: string) {
+  async function send(text: string, opts?: { redoTxId?: string; replaceId?: string }) {
     const message = text.trim();
     if (!message || busy) return;
     setBusy(true);
-    setMessages((m) => [...m, { id: safeUuid(), role: "user", text: message }]);
+    // A redo is a correction of a reply already on screen, so it does not add a
+    // second bubble. A fresh message does.
+    if (!opts?.replaceId) {
+      setMessages((m) => [...m, { id: safeUuid(), role: "user", text: message }]);
+    }
     setInput("");
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, redoTxId: opts?.redoTxId }),
       });
       if (res.ok) {
         const data = await res.json();
-        pushAssistant(data.reply, data.cards);
+        const replaceId = opts?.replaceId;
+        if (replaceId) {
+          // The second opinion lands exactly where the reply it questions was,
+          // so nothing the user already read gets duplicated.
+          setMessages((m) => {
+            const out: Msg[] = [];
+            for (const msg of m) {
+              if (msg.id !== replaceId) {
+                out.push(msg);
+                continue;
+              }
+              out.push({ id: msg.id, role: "assistant", text: data.reply, card: data.cards?.[0] });
+              for (const card of (data.cards ?? []).slice(1) as Card[]) {
+                out.push({ id: safeUuid(), role: "assistant", text: "", card });
+              }
+            }
+            return out;
+          });
+        } else {
+          pushAssistant(data.reply, data.cards);
+        }
       } else {
         pushAssistant("That didn't go through. Check your connection and try again.", undefined);
       }
@@ -217,6 +259,15 @@ export default function ChatHome() {
     }
     setBusy(false);
     refresh();
+  }
+
+  /**
+   * The one tap that overrules a local read: same words, sent back to the model
+   * for a second opinion. The spend is moved, never logged twice.
+   */
+  function redoAssumption(msgId: string, card: Card) {
+    if (!card.original || !card.txId) return;
+    void send(card.original, { redoTxId: card.txId, replaceId: msgId });
   }
 
   /**
@@ -280,32 +331,18 @@ export default function ChatHome() {
     refresh();
   }
 
-  function startVoice() {
-    type SR = {
-      lang: string;
-      interimResults: boolean;
-      start(): void;
-      onresult: ((e: { results: { 0: { 0: { transcript: string } } } }) => void) | null;
-      onend: (() => void) | null;
-      onerror: (() => void) | null;
-    };
-    const w = window as unknown as { webkitSpeechRecognition?: new () => SR; SpeechRecognition?: new () => SR };
-    const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
-    if (!Ctor) {
-      pushAssistant("Voice input needs Safari or Chrome on your phone. Typing works the same.", undefined);
-      return;
-    }
-    const rec = new Ctor();
-    rec.lang = "en-US";
-    rec.interimResults = false;
-    rec.onresult = (e) => {
-      const transcript = e.results[0][0].transcript;
-      setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
-    };
-    rec.onend = () => setListening(false);
-    rec.onerror = () => setListening(false);
-    setListening(true);
-    rec.start();
+  /**
+   * Voice goes through the phone, not through us.
+   *
+   * The keyboard's own dictation transcribes better than the browser speech
+   * API, works with no network round trip, costs no AI tokens, and cannot get
+   * stuck listening the way a session we own can. So this button opens the
+   * keyboard and points at the microphone on it.
+   */
+  function startDictation() {
+    inputRef.current?.focus();
+    setDictationHint(true);
+    window.setTimeout(() => setDictationHint(false), 7000);
   }
 
   async function onReceipt(file: File) {
@@ -361,7 +398,7 @@ export default function ChatHome() {
   const [sheetError, setSheetError] = useState<string | null>(null);
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col">
+    <main className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex items-center justify-between px-5 pt-5">
         <span className="micro">BudgetFlow</span>
         <Link
@@ -392,7 +429,7 @@ export default function ChatHome() {
       </section>
 
       {/* Feed */}
-      <div ref={feedRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-4">
+      <div ref={feedRef} className="scrollbar-none min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-none px-4 pb-4">
         {loaded && messages.length === 0 && (
           <div className="card mx-auto max-w-[85%] p-5 text-center">
             <p className="text-[15px] leading-relaxed">
@@ -501,6 +538,18 @@ export default function ChatHome() {
                   )}
                 </div>
               )}
+              {m.card?.type === "assumption" && (
+                <button
+                  className="chip mt-2.5 inline-flex items-center gap-1.5"
+                  disabled={busy}
+                  onClick={() => redoAssumption(m.id, m.card!)}
+                  aria-label={`Ask the AI to re-read this, in case it was not ${m.card.assumed}`}
+                >
+                  <RecheckIcon size={13} />
+                  Wrong read? Ask the AI
+                </button>
+              )}
+
               {m.card?.type === "plan_draft" && (
                 <div className="mt-2.5 rounded-[10px] border border-[var(--hairline)] p-3">
                   <p className="micro">Plan</p>
@@ -532,17 +581,30 @@ export default function ChatHome() {
         className="shrink-0 border-t px-3 pb-3 pt-2.5 backdrop-blur-xl"
         style={{ borderColor: "var(--hairline)", background: "var(--surface)" }}
       >
+        {dictationHint && (
+          <p className="micro flex items-center gap-1.5 px-1 pb-2">
+            <MicIcon size={14} />
+            Tap the microphone on your keyboard, then say it out loud.
+          </p>
+        )}
         <div className="flex items-center gap-2">
           <button
-            className={`icon-btn shrink-0 ${listening ? "warn-text" : ""}`}
-            style={listening ? { borderColor: "var(--warn)" } : undefined}
-            onClick={startVoice}
-            aria-label={listening ? "Listening" : "Dictate a message"}
+            className="icon-btn shrink-0"
+            style={{ color: "var(--accent)", borderColor: dictationHint ? "var(--accent)" : undefined }}
+            onClick={startDictation}
+            aria-label="Speak it with your keyboard microphone"
           >
             <MicIcon />
           </button>
           <input
+            ref={inputRef}
             className="input min-w-0 flex-1"
+            type="text"
+            inputMode="text"
+            autoComplete="off"
+            autoCorrect="on"
+            autoCapitalize="sentences"
+            spellCheck
             placeholder="Coffee 180, or ask me anything"
             value={input}
             onChange={(e) => setInput(e.target.value)}

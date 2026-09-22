@@ -284,14 +284,39 @@ export class MariaDbStore implements DataStore {
     const rows = await this.pool.query("SELECT * FROM transactions WHERE id = ?", [id]);
     return rows[0] ? this.mapTx(rows[0]) : null;
   }
-  async updateTransaction(id: string, patch: Partial<Pick<TxRow, "categoryId" | "flagged">>) {
+  async updateTransaction(
+    id: string,
+    patch: Partial<Pick<TxRow, "categoryId" | "flagged" | "vendor">>
+  ) {
     const sets: string[] = [];
     const vals: unknown[] = [];
     if (patch.categoryId !== undefined) { sets.push("category_id = ?"); vals.push(patch.categoryId); }
     if (patch.flagged !== undefined) { sets.push("flagged = ?"); vals.push(patch.flagged); }
+    if (patch.vendor !== undefined) { sets.push("vendor = ?"); vals.push(patch.vendor); }
     if (sets.length) {
       await this.pool.query(`UPDATE transactions SET ${sets.join(", ")} WHERE id = ?`, [...vals, id]);
     }
+  }
+
+  async undoTradeOffs(transactionId: string) {
+    const moves = await this.pool.query(
+      `SELECT m.from_category AS from_category, m.amount
+         FROM trade_off_moves m
+         JOIN trade_offs o ON o.id = m.trade_off_id
+        WHERE o.transaction_id = ?`,
+      [transactionId]
+    );
+    const offs = await this.pool.query("SELECT id FROM trade_offs WHERE transaction_id = ?", [
+      transactionId,
+    ]);
+    for (const o of offs as { id: string }[]) {
+      await this.pool.query("DELETE FROM trade_off_moves WHERE trade_off_id = ?", [o.id]);
+      await this.pool.query("DELETE FROM trade_offs WHERE id = ?", [o.id]);
+    }
+    return (moves as { from_category: string; amount: unknown }[]).map((m) => ({
+      fromCategoryId: String(m.from_category),
+      amount: Number(m.amount),
+    }));
   }
 
   async addTradeOff(t: {
@@ -341,6 +366,10 @@ export class MariaDbStore implements DataStore {
       payload: r.payload ? JSON.parse(String(r.payload)) : null,
       createdAt: new Date(String(r.created_at)),
     }));
+  }
+
+  async deleteChatMessage(id: string) {
+    await this.pool.query("DELETE FROM chat_messages WHERE id = ?", [id]);
   }
 
   async upsertDayStat(s: {

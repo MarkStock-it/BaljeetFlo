@@ -12,6 +12,7 @@ import {
   type TxDraft,
 } from "@/lib/engine/budget";
 import { parseFallback } from "@/lib/engine/parse";
+import { readLocally } from "@/lib/engine/local-parse";
 import { dayKey } from "@/lib/day";
 import { addMonths, monthsBetween, planProjection } from "@/lib/engine/plans";
 import { parseScheduleIntent, type ScheduleIntent } from "@/lib/engine/schedule-intent";
@@ -21,7 +22,7 @@ import { safeUuid } from "@/lib/uuid";
 export async function GET() {
   const user = await requireUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const rows = await getStore().listChatMessages(user.id, 100);
+  const rows = collapseSupersededRedoRows(await getStore().listChatMessages(user.id, 100));
   return NextResponse.json({
     messages: rows.map((m) => ({
       id: m.id,
@@ -33,15 +34,69 @@ export async function GET() {
   });
 }
 
+/**
+ * Older redo requests briefly wrote a second user bubble and a second answer.
+ * Keep the transcript honest when those rows already exist: a correction is
+ * one user line with the latest answer, not a second spend.
+ */
+function collapseSupersededRedoRows<T extends { role: "user" | "assistant"; payload: unknown }>(rows: T[]): T[] {
+  const out: T[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    const row = rows[i];
+    if (row.role !== "user") {
+      out.push(row);
+      i += 1;
+      continue;
+    }
+
+    const text = (row.payload as { text?: unknown } | null)?.text;
+    let j = i + 1;
+    let latestAssistant: T | null = null;
+    let repeated = false;
+    while (j < rows.length && rows[j].role === "assistant") {
+      const assistantText = (rows[j].payload as { text?: unknown } | null)?.text;
+      if (typeof assistantText === "string" && assistantText.startsWith("My read was ")) {
+        latestAssistant = rows[j];
+      }
+      j += 1;
+    }
+    while (j < rows.length && rows[j].role === "user") {
+      const nextText = (rows[j].payload as { text?: unknown } | null)?.text;
+      if (nextText !== text) break;
+      repeated = true;
+      j += 1;
+      while (j < rows.length && rows[j].role === "assistant") {
+        const assistantText = (rows[j].payload as { text?: unknown } | null)?.text;
+        if (typeof assistantText === "string" && assistantText.startsWith("My read was ")) {
+          latestAssistant = rows[j];
+        }
+        j += 1;
+      }
+    }
+
+    out.push(row);
+    if (repeated && latestAssistant) out.push(latestAssistant);
+    else out.push(...rows.slice(i + 1, j));
+    i = j;
+  }
+  return out;
+}
+
 export async function POST(req: Request) {
   const user = await requireUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { message } = (await req.json()) as { message: string };
+  const { message, redoTxId } = (await req.json()) as { message: string; redoTxId?: string };
   if (!message?.trim()) return NextResponse.json({ error: "Empty message" }, { status: 400 });
 
   const store = getStore();
   const state = await buildBudgetState(user.id);
   const apiKey = await getUserApiKey(user);
+
+  // "Incorrect assumption" sends the same message back with the transaction it
+  // mis-read. A redo never writes a second transaction: the spend happened once.
+  const redoRow = redoTxId ? await store.getTransaction(redoTxId) : null;
+  const redoing = redoRow && redoRow.userId === user.id ? redoRow : null;
 
   // "Can I afford X?" is a question, not a log. Answer with the consequence.
   const wantsAdvice = /\b(can i afford|should i buy|can i buy|is it ok if i (buy|spend))\b/i.test(message);
@@ -62,19 +117,19 @@ export async function POST(req: Request) {
     return offerSchedule(store, user.id, message, state, scheduleIntent);
   }
 
-  await store.addChatMessage({
-    id: safeUuid(),
-    userId: user.id,
-    role: "user",
-    kind: "text",
-    payload: { text: message },
-    createdAt: new Date(),
-  });
-
   let draft: TxDraft | null = null;
   let usedFallback = false;
+  /** Where this reading came from, so the UI can offer a correction. */
+  let source: "local" | "ai" | "fallback" = "fallback";
 
-  if (apiKey) {
+  // Local first. A confident keyword read is logged without asking Google, so
+  // the common "coffee 130" case is instant. Everything else goes to the model.
+  // A redo always goes to the model: the whole point is a second opinion.
+  const local = readLocally(message, state.categories);
+  if (local?.confident && !redoing) {
+    draft = { ...local.draft, categoryId: local.categoryId, confidence: 0.9 };
+    source = "local";
+  } else if (apiKey) {
     try {
       draft = await geminiJson<TxDraft>({
         apiKey,
@@ -94,6 +149,7 @@ export async function POST(req: Request) {
           required: ["amount"],
         },
       });
+      if (draft) source = "ai";
     } catch (e) {
       if (!(e instanceof GeminiError)) throw e;
       // Invalid key, quota, network: fall through to the regex parser.
@@ -102,9 +158,35 @@ export async function POST(req: Request) {
   if (!draft) {
     draft = parseFallback(message);
     usedFallback = true;
+    source = "fallback";
   }
   if (!draft || draft.amount <= 0) {
     return coachReply(store, user.id, message, state, apiKey);
+  }
+
+  // Only a first reading lands in the transcript. A redo is a correction of an
+  // existing line, not a second utterance.
+  if (!redoing) {
+    await store.addChatMessage({
+      id: safeUuid(),
+      userId: user.id,
+      role: "user",
+      kind: "text",
+      payload: { text: message },
+      createdAt: new Date(),
+    });
+  }
+
+  if (redoing) {
+    return await redoReading({
+      store,
+      userId: user.id,
+      tx: redoing,
+      draft,
+      message,
+      apiKey,
+      state,
+    });
   }
 
   // Refund path: money back, Safe-to-Spend rises immediately.
@@ -187,6 +269,12 @@ export async function POST(req: Request) {
   ];
 
   const cat = state.categories.find((c) => c.id === categoryId);
+
+  // A local read is an assumption the app made without asking the model. The
+  // user gets one tap to send it back for a second opinion.
+  const assumption =
+    source === "local" && cat ? { assumed: cat.name, original: message } : null;
+
   let reply: string;
 
   if (plan.overshoot > 0) {
@@ -230,6 +318,8 @@ export async function POST(req: Request) {
     reply = `${fmt(draft.amount)} under ${cat?.name}. Safe-to-Spend is ${fmt(tx.stsAfter)}.`;
     if (tx.flagged && cat) {
       reply += ` I guessed the category. Tap below if it's wrong.`;
+    } else if (source === "local" && cat) {
+      reply += ` I read that locally, so it was instant.`;
     }
   }
 
@@ -243,16 +333,179 @@ export async function POST(req: Request) {
     });
   }
 
+  // Composed last so the correction button always sits directly under the
+  // reply it questions, never above a trade-off card.
+  if (assumption) {
+    cards.push({ type: "assumption", ...assumption, txId: tx.id });
+  }
+
   await store.addChatMessage({
     id: safeUuid(),
     userId: user.id,
+    role: "assistant",
+    kind: "text",
+    // The assumption travels with the reply so the correction survives a
+    // reload, the way plan and schedule drafts already do.
+    payload: assumption
+      ? { text: reply, cards, assumption: { ...assumption, type: "assumption", txId: tx.id } }
+      : { text: reply, cards },
+    createdAt: new Date(),
+  });
+
+  return NextResponse.json({ reply, cards, usedFallbackParser: usedFallback, source });
+}
+
+/**
+ * Second opinion on a spend the local reader placed.
+ *
+ * The transaction is moved rather than duplicated, and if its new category no
+ * longer covers it, the same zero-sum rebalance as a fresh log runs. The state
+ * is rebuilt first so the amount is not counted twice.
+ */
+async function redoReading(opts: {
+  store: ReturnType<typeof getStore>;
+  userId: string;
+  tx: { id: string; categoryId: string | null; amount: number; vendor: string | null };
+  draft: TxDraft;
+  message: string;
+  apiKey: string | null;
+  state: BudgetState;
+}) {
+  const { store, userId, tx, draft, message, apiKey, state } = opts;
+  const wasName = state.categories.find((c) => c.id === tx.categoryId)?.name ?? "my first guess";
+
+  // Without a key there is no second opinion to get. Offer the manual pick
+  // instead of pretending, since the local read is all the app has.
+  if (!apiKey) {
+    const options = state.categories
+      .filter((c) => c.flexible && c.id !== tx.categoryId)
+      .slice(0, 2)
+      .map((c) => c.name);
+    return NextResponse.json({
+      reply: `I read that as ${wasName}, and there's no AI key saved to check again. Which one was it?`,
+      cards: [{ type: "clarify_chip", txId: tx.id, current: wasName, options }],
+      source: "local",
+    });
+  }
+
+  const modelPick =
+    draft.categoryId && state.categories.some((c) => c.id === draft.categoryId && c.flexible)
+      ? draft.categoryId
+      : null;
+  const nextId = modelPick ?? guessCategory(state, message);
+  const nextName = state.categories.find((c) => c.id === nextId)?.name ?? wasName;
+
+  /**
+   * One utterance gets one answer. The superseded reply is dropped rather than
+   * stacked, so a reload cannot resurface a correction button for a spend that
+   * has already been questioned.
+   */
+  const dropSuperseded = async () => {
+    const history = await store.listChatMessages(userId, 100);
+    const stale = history.find(
+      (m) => (m.payload as { assumption?: { txId?: string } } | null)?.assumption?.txId === tx.id
+    );
+    if (stale) await store.deleteChatMessage(stale.id);
+  };
+
+  if (nextId === tx.categoryId) {
+    await store.updateTransaction(tx.id, { flagged: false });
+    const reply = `I checked with Gemini and it reads that the same way: ${nextName}. Nothing moved, and Safe-to-Spend is still ${fmt(
+      calculateSafeToSpend(state)
+    )}.`;
+    await dropSuperseded();
+    await store.addChatMessage({
+      id: safeUuid(),
+      userId,
+      role: "assistant",
+      kind: "text",
+      payload: { text: reply },
+      createdAt: new Date(),
+    });
+    return NextResponse.json({ reply, cards: [], source: "ai" });
+  }
+
+  // Undo the reallocation the first reading applied before asking for a new
+  // one. Without this the donors fund both trade-offs and the same peso leaves
+  // the same category twice.
+  const undone = await store.undoTradeOffs(tx.id);
+  if (undone.length) {
+    const restored = await buildBudgetState(userId);
+    for (const move of undone) {
+      const donor = restored.categories.find((c) => c.id === move.fromCategoryId);
+      if (donor) {
+        await store.updateCategoryCap(userId, donor.id, donor.monthlyCap + move.amount);
+      }
+    }
+  }
+
+  await store.updateTransaction(tx.id, {
+    categoryId: nextId,
+    flagged: false,
+    vendor: draft.vendor ?? tx.vendor,
+  });
+
+  // Rebuild, then take this transaction back out of the new category's spend so
+  // the trade-off is computed exactly as a fresh log would compute it.
+  const after = await buildBudgetState(userId);
+  const asIfFresh = after.categories.map((c) =>
+    c.id === nextId ? { ...c, spent: c.spent - tx.amount } : c
+  );
+  const plan = computeTradeOff(asIfFresh, nextId, tx.amount);
+  const cards: unknown[] = [];
+  let consequence = "";
+
+  if (plan.overshoot > 0) {
+    for (const move of plan.moves) {
+      const donor = asIfFresh.find((c) => c.id === move.fromCategoryId);
+      if (donor) {
+        await store.updateCategoryCap(userId, donor.id, Math.max(0, donor.monthlyCap - move.amount));
+      }
+    }
+    await store.addTradeOff({
+      id: safeUuid(),
+      userId,
+      transactionId: tx.id,
+      overshoot: plan.overshoot,
+      status: plan.partial ? "adjusted" : "auto",
+      moves: plan.moves,
+    });
+    const moveText = plan.moves
+      .map((m) => `${fmt(m.amount)} from ${asIfFresh.find((c) => c.id === m.fromCategoryId)?.name}`)
+      .join(" and ");
+    consequence = plan.partial
+      ? ` ${nextName} sits ${fmt(plan.overshoot)} past what the others can absorb, so your savings goal stays locked and the rest comes out of tomorrow's pace.`
+      : ` ${nextName} is ${fmt(plan.overshoot)} over, so I moved ${moveText}. Your savings goal wasn't touched.`;
+    cards.push({
+      type: "tradeoff_card",
+      txId: tx.id,
+      overshoot: plan.overshoot,
+      partial: plan.partial,
+      moves: plan.moves.map((m) => ({
+        fromId: m.fromCategoryId,
+        from: asIfFresh.find((c) => c.id === m.fromCategoryId)?.name,
+        amount: m.amount,
+      })),
+      donorNames: asIfFresh.filter((c) => c.flexible && c.id !== nextId).map((c) => c.name),
+    });
+  }
+
+  const reply = `My read was ${wasName}. Gemini reads it as ${nextName}, so I moved the ${fmt(
+    tx.amount
+  )} there.${consequence}`;
+
+  await dropSuperseded();
+
+  await store.addChatMessage({
+    id: safeUuid(),
+    userId,
     role: "assistant",
     kind: "text",
     payload: { text: reply },
     createdAt: new Date(),
   });
 
-  return NextResponse.json({ reply, cards, usedFallbackParser: usedFallback });
+  return NextResponse.json({ reply, cards, source: "ai" });
 }
 
 function guessCategory(state: BudgetState, text: string): string {

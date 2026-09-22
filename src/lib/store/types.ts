@@ -144,9 +144,20 @@ export interface DataStore {
   addTransaction(tx: TxRow): Promise<void>;
   listTransactions(userId: string, filters: TxFilters): Promise<{ rows: TxRow[]; total: number }>;
   getTransaction(id: string): Promise<TxRow | null>;
-  updateTransaction(id: string, patch: Partial<Pick<TxRow, "categoryId" | "flagged">>): Promise<void>;
+  updateTransaction(
+    id: string,
+    patch: Partial<Pick<TxRow, "categoryId" | "flagged" | "vendor">>
+  ): Promise<void>;
 
   // trade-offs
+  /**
+   * Removes the reallocation recorded for a transaction and hands it back.
+   *
+   * A corrected reading has to put the donor caps back the way it found them,
+   * otherwise the new trade-off is computed on top of the old one and the same
+   * peso is taken out of the same category twice.
+   */
+  undoTradeOffs(transactionId: string): Promise<{ fromCategoryId: string; amount: number }[]>;
   addTradeOff(t: {
     id: string;
     userId: string;
@@ -159,6 +170,8 @@ export interface DataStore {
   // chat
   addChatMessage(m: ChatRow): Promise<void>;
   listChatMessages(userId: string, limit?: number): Promise<ChatRow[]>;
+  /** Used when a reply is superseded, so the transcript keeps one answer per line. */
+  deleteChatMessage(id: string): Promise<void>;
 
   // day stats (streak/stack)
   upsertDayStat(s: {
