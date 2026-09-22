@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { FilterIcon, RepeatIcon, XIcon } from "@/components/icons";
 import { dayKey } from "@/lib/day";
 import { useBudgetSnapshot } from "@/lib/budget-snapshot";
+import { readTabCache, writeTabCache } from "@/lib/tab-cache";
 
 type Tx = {
   id: string;
@@ -27,8 +28,9 @@ const peso = (n: number) =>
   `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function HistoryPage() {
-  const [rows, setRows] = useState<Tx[]>([]);
-  const [total, setTotal] = useState(0);
+  const [rows, setRows] = useState<Tx[]>(() => readTabCache<Tx[]>("history.rows", []));
+  const [total, setTotal] = useState(() => readTabCache<number>("history.total", 0));
+  const [loaded, setLoaded] = useState(() => rows.length > 0);
   const [page, setPage] = useState(0);
   // Category list comes from the shared snapshot, so it is already there on
   // arrival instead of appearing after a fetch.
@@ -48,11 +50,20 @@ export default function HistoryPage() {
       if (fMin) q.set("min", fMin);
       if (fMax) q.set("max", fMax);
       const res = await fetch(`/api/transactions?${q}`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        setLoaded(true);
+        return;
+      }
       const data = await res.json();
-      setRows((prev) => (p === 0 ? data.rows : [...prev, ...data.rows]));
+      setRows((prev) => {
+        const next = p === 0 ? data.rows : [...prev, ...data.rows];
+        writeTabCache("history.rows", next);
+        return next;
+      });
       setTotal(data.total);
+      writeTabCache("history.total", data.total);
       setPage(p);
+      setLoaded(true);
     },
     [fCat, fMin, fMax]
   );
@@ -248,7 +259,9 @@ export default function HistoryPage() {
         </button>
       )}
 
-      {rows.length === 0 && (
+      {!loaded && <p className="micro mt-10 text-center">Loading your history…</p>}
+
+      {loaded && rows.length === 0 && (
         <div className="card mx-auto mt-10 max-w-[80%] p-6 text-center">
           <p className="text-[15px]">Nothing logged yet. Tell Flow what you spent and it lands here.</p>
         </div>

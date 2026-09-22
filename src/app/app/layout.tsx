@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { warmTabCaches } from "@/lib/tab-cache";
 import {
   ChatIcon,
   HistoryIcon,
@@ -50,7 +51,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       .then((d) => {
         if (!d.user) router.replace("/");
         else if (!d.user.onboardingDone) router.replace("/onboarding");
-        else setChecked(true);
+        else {
+          setChecked(true);
+          void warmTabCaches();
+        }
       })
       .catch(() => router.replace("/"));
   }, [router]);

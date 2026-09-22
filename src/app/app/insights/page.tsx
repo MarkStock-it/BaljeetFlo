@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { SparkIcon } from "@/components/icons";
 import { CashPile } from "@/components/CashPile";
+import { readTabCache, writeTabCache } from "@/lib/tab-cache";
 
 type StackData = {
   stack: { pct: number; blocks: number; streakDays: number };
@@ -12,24 +13,48 @@ type StackData = {
 type Report = { headline: string; observations: string[]; recommendations: string[] };
 
 export default function InsightsPage() {
-  const [data, setData] = useState<StackData | null>(null);
-  const [report, setReport] = useState<Report | null>(null);
+  const [data, setData] = useState<StackData | null>(() =>
+    readTabCache<StackData | null>("insights.data", null)
+  );
+  const [report, setReport] = useState<Report | null>(() =>
+    readTabCache<Report | null>("insights.report", null)
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [heuristicsExpanded, setHeuristicsExpanded] = useState(false);
 
   useEffect(() => {
     fetch("/api/insights")
       .then((r) => (r.ok ? r.json() : null))
-      .then(setData)
+      .then((next) => {
+        if (next) {
+          setData(next);
+          writeTabCache("insights.data", next);
+        }
+      })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!data?.heuristics?.length) return;
+
+    // Paint the collapsed state first, then expand on the next frame. This
+    // lets the button follow the content down instead of jumping.
+    setHeuristicsExpanded(false);
+    const frame = requestAnimationFrame(() => setHeuristicsExpanded(true));
+    return () => cancelAnimationFrame(frame);
+  }, [data?.heuristics?.length]);
 
   async function analyzeNow() {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/insights", { method: "POST" });
-      if (res.ok) setReport((await res.json()).report);
+      if (res.ok) {
+        const next = (await res.json()).report as Report;
+        setReport(next);
+        writeTabCache("insights.report", next);
+      }
       else setError("The analysis didn't run. Try again in a moment.");
     } catch {
       setError("You seem to be offline.");
@@ -56,14 +81,23 @@ export default function InsightsPage() {
       </section>
 
       {data?.heuristics?.length ? (
-        <section className="mt-6 space-y-2.5">
-          <h2 className="text-[13px] font-medium text-[var(--ink-2)]">Worth knowing</h2>
-          {data.heuristics.map((h) => (
-            <div key={h.kind} className="card-solid p-4 text-[15px] leading-relaxed">
-              {h.text}
-            </div>
-          ))}
-        </section>
+        <div
+          className="grid overflow-hidden transition-[grid-template-rows,opacity,margin-top] duration-[280ms] ease-out"
+          style={{
+            gridTemplateRows: heuristicsExpanded ? "minmax(0, 1fr)" : "0fr",
+            marginTop: heuristicsExpanded ? "1.5rem" : 0,
+            opacity: heuristicsExpanded ? 1 : 0,
+          }}
+        >
+          <section className="min-h-0 space-y-2.5">
+            <h2 className="text-[13px] font-medium text-[var(--ink-2)]">Worth knowing</h2>
+            {data.heuristics.map((h) => (
+              <div key={h.kind} className="card-solid p-4 text-[15px] leading-relaxed">
+                {h.text}
+              </div>
+            ))}
+          </section>
+        </div>
       ) : null}
 
       {report && (

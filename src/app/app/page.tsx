@@ -18,6 +18,7 @@ import {
 import { safeUuid } from "@/lib/uuid";
 import { CashPile } from "@/components/CashPile";
 import { refreshBudget, useBudgetSnapshot } from "@/lib/budget-snapshot";
+import { warmTabCaches } from "@/lib/tab-cache";
 
 type Card = {
   type:
@@ -125,9 +126,11 @@ export default function ChatHome() {
   const inputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const voiceStartingRef = useRef(false);
+  const layoutViewportHeightRef = useRef<number | null>(null);
 
   const refresh = useCallback(() => {
     void refreshBudget();
+    void warmTabCaches(true);
   }, []);
 
   useEffect(() => {
@@ -431,7 +434,17 @@ export default function ChatHome() {
     const viewport = window.visualViewport;
     if (!viewport) return;
     const updateKeyboardInset = () => {
-      const covered = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      // Capture the pre-keyboard layout height once. Both innerHeight and
+      // clientHeight can shrink in mobile Safari after focus, which otherwise
+      // makes the keyboard look like it never opened.
+      if (layoutViewportHeightRef.current === null) {
+        layoutViewportHeightRef.current = Math.max(
+          document.documentElement.clientHeight,
+          window.innerHeight
+        );
+      }
+      const layoutHeight = layoutViewportHeightRef.current;
+      const covered = Math.max(0, layoutHeight - viewport.height - viewport.offsetTop);
       setKeyboardInset(Math.round(covered));
     };
     updateKeyboardInset();
@@ -728,6 +741,13 @@ export default function ChatHome() {
             placeholder="Coffee 180, or ask me anything"
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onFocus={() =>
+              window.requestAnimationFrame(() => {
+                window.scrollTo({ top: 0, behavior: "auto" });
+                document.documentElement.scrollTop = 0;
+                document.body.scrollTop = 0;
+              })
+            }
             onKeyDown={(e) => e.key === "Enter" && send(input)}
             enterKeyHint="send"
           />

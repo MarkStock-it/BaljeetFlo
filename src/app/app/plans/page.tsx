@@ -14,6 +14,7 @@ import {
 import { allocationStatus } from "@/lib/engine/plans";
 import { dayKey, parseDay } from "@/lib/day";
 import { refreshBudget, useBudgetSnapshot } from "@/lib/budget-snapshot";
+import { readTabCache, writeTabCache } from "@/lib/tab-cache";
 
 type Projection = {
   saved: number;
@@ -123,11 +124,15 @@ type Prefill = { name: string; target: string; monthly: string; deadline: string
 
 export default function PlansPage() {
   const [prefill, setPrefill] = useState<Prefill | null>(null);
-  const [plans, setPlans] = useState<ApiPlan[] | null>(null);
+  const [plans, setPlans] = useState<ApiPlan[] | null>(() =>
+    readTabCache<ApiPlan[] | null>("plans", null)
+  );
   // Shared snapshot: the caps this sheet reads are already in memory, so the
   // screen never opens against an empty budget.
   const budget = useBudgetSnapshot();
-  const [schedules, setSchedules] = useState<Sched[] | null>(null);
+  const [schedules, setSchedules] = useState<Sched[] | null>(() =>
+    readTabCache<Sched[] | null>("schedules", null)
+  );
   const [schedSheet, setSchedSheet] = useState<Sched | "new" | null>(null);
   const [editing, setEditing] = useState<ApiPlan | null>(null);
   const [creating, setCreating] = useState(false);
@@ -138,9 +143,13 @@ export default function PlansPage() {
       fetch("/api/plans").then((r) => (r.ok ? r.json() : { plans: [] })),
       fetch("/api/recurring").then((r) => (r.ok ? r.json() : { recurring: [] })),
     ]);
-    setPlans(p.plans ?? []);
+    const nextPlans = p.plans ?? [];
+    const nextSchedules = s.recurring ?? [];
+    setPlans(nextPlans);
+    writeTabCache("plans", nextPlans);
     void refreshBudget();
-    setSchedules(s.recurring ?? []);
+    setSchedules(nextSchedules);
+    writeTabCache("schedules", nextSchedules);
   }, []);
 
   useEffect(() => {
@@ -180,6 +189,8 @@ export default function PlansPage() {
         <div className="flex items-center gap-2.5">
           <RepeatIcon size={16} />
           <h2 className="text-[15px] font-semibold">On a schedule</h2>
+          {schedules === null && <p className="micro mt-4">Loading…</p>}
+
           {schedules && schedules.length > 0 && (
             <span className="micro ml-auto num">
               {pesoShort(schedules.filter((s) => s.active).reduce((t, s) => t + s.committedThisMonth, 0))} still
@@ -187,8 +198,6 @@ export default function PlansPage() {
             </span>
           )}
         </div>
-
-        {schedules === null && <p className="micro mt-4">Loading…</p>}
 
         {schedules?.length === 0 && (
           <div className="card mt-3 p-5">
@@ -245,8 +254,6 @@ export default function PlansPage() {
 
       {/* ── Plans ─────────────────────────────────────────────────────── */}
       <h2 className="mt-9 text-[15px] font-semibold">Saving up</h2>
-
-      {plans === null && <p className="micro mt-8">Loading your plans…</p>}
 
       {plans?.length === 0 && (
         <div className="card mt-3 p-5">
