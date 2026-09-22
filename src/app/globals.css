@@ -106,6 +106,24 @@ button {
   overscroll-behavior: none;
 }
 
+.chat-screen {
+  isolation: isolate;
+}
+
+.composer-bar {
+  left: 50%;
+  width: min(100%, 28rem);
+  transform: translateX(-50%);
+  transition: bottom 0.22s ease;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-bar {
+    transition: none;
+  }
+}
+
 .app-scroll,
 .scrollbar-none {
   scrollbar-width: none;

@@ -78,6 +78,20 @@ type ReceiptDraft = {
 
 type Cat = { id: string; name: string; flexible?: boolean };
 
+type SpeechRecognitionLike = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start(): void;
+  stop(): void;
+  onresult: ((event: {
+    resultIndex: number;
+    results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }>;
+  }) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+};
+
 const peso = (n: number) =>
   `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -97,7 +111,10 @@ export default function ChatHome() {
   const [loaded, setLoaded] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [dictationHint, setDictationHint] = useState(false);
+  const [voiceState, setVoiceState] = useState<
+    "idle" | "requesting" | "listening" | "unsupported" | "error"
+  >("idle");
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const [adjusting, setAdjusting] = useState<Card | null>(null);
   const [sheet, setSheet] = useState<SheetStep | null>(null);
   const [pendingDraft, setPendingDraft] = useState<ReceiptDraft | null>(null);
@@ -106,6 +123,8 @@ export default function ChatHome() {
   const feedRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const voiceStartingRef = useRef(false);
 
   const refresh = useCallback(() => {
     void refreshBudget();
@@ -332,18 +351,97 @@ export default function ChatHome() {
   }
 
   /**
-   * Voice goes through the phone, not through us.
-   *
-   * The keyboard's own dictation transcribes better than the browser speech
-   * API, works with no network round trip, costs no AI tokens, and cannot get
-   * stuck listening the way a session we own can. So this button opens the
-   * keyboard and points at the microphone on it.
+   * In-app dictation. Recognition only fills the draft; it never submits it.
+   * The same button toggles the session off, which prevents a stuck microphone
+   * from trapping the composer.
    */
-  function startDictation() {
-    inputRef.current?.focus();
-    setDictationHint(true);
-    window.setTimeout(() => setDictationHint(false), 7000);
+  async function toggleVoice() {
+    if (recognitionRef.current && voiceState === "listening") {
+      recognitionRef.current.stop();
+      return;
+    }
+    if (voiceStartingRef.current || voiceState === "requesting") return;
+
+    const recognitionWindow = window as Window & {
+      SpeechRecognition?: new () => SpeechRecognitionLike;
+      webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+    };
+    const SpeechRecognitionCtor =
+      recognitionWindow.SpeechRecognition ?? recognitionWindow.webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) {
+      setVoiceState("unsupported");
+      return;
+    }
+
+    voiceStartingRef.current = true;
+    setVoiceState("requesting");
+    try {
+      // Ask for the device permission explicitly before starting recognition.
+      // Tracks are stopped immediately; the recognizer owns the active session.
+      if (navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+      }
+
+      const recognition = new SpeechRecognitionCtor();
+      recognition.lang = navigator.language || "en-US";
+      recognition.continuous = true;
+      // Final results only: interim results would append the same phrase again
+      // on every partial event and make the editable draft look duplicated.
+      recognition.interimResults = false;
+      recognition.onresult = (event) => {
+        let transcript = "";
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          if (event.results[i].isFinal) transcript += event.results[i][0].transcript;
+        }
+        if (transcript.trim()) {
+          setInput((current) => `${current.replace(/\s+$/, "")} ${transcript}`.trim());
+        }
+      };
+      recognition.onerror = () => {
+        recognitionRef.current = null;
+        voiceStartingRef.current = false;
+        setVoiceState("error");
+      };
+      recognition.onend = () => {
+        recognitionRef.current = null;
+        voiceStartingRef.current = false;
+        setVoiceState("idle");
+      };
+
+      recognitionRef.current = recognition;
+      voiceStartingRef.current = false;
+      setVoiceState("listening");
+      recognition.start();
+    } catch {
+      voiceStartingRef.current = false;
+      recognitionRef.current = null;
+      setVoiceState("error");
+    }
   }
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const updateKeyboardInset = () => {
+      const covered = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      setKeyboardInset(Math.round(covered));
+    };
+    updateKeyboardInset();
+    viewport.addEventListener("resize", updateKeyboardInset);
+    viewport.addEventListener("scroll", updateKeyboardInset);
+    return () => {
+      viewport.removeEventListener("resize", updateKeyboardInset);
+      viewport.removeEventListener("scroll", updateKeyboardInset);
+    };
+  }, []);
 
   async function onReceipt(file: File) {
     if (!file) return;
@@ -398,7 +496,7 @@ export default function ChatHome() {
   const [sheetError, setSheetError] = useState<string | null>(null);
 
   return (
-    <main className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+    <main className="chat-screen relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex items-center justify-between px-5 pt-5">
         <span className="micro">BudgetFlow</span>
         <Link
@@ -429,7 +527,7 @@ export default function ChatHome() {
       </section>
 
       {/* Feed */}
-      <div ref={feedRef} className="scrollbar-none min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-none px-4 pb-4">
+      <div ref={feedRef} className="scrollbar-none min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-none px-4 pb-28">
         {loaded && messages.length === 0 && (
           <div className="card mx-auto max-w-[85%] p-5 text-center">
             <p className="text-[15px] leading-relaxed">
@@ -578,21 +676,43 @@ export default function ChatHome() {
 
       {/* Composer */}
       <div
-        className="shrink-0 border-t px-3 pb-3 pt-2.5 backdrop-blur-xl"
-        style={{ borderColor: "var(--hairline)", background: "var(--surface)" }}
+        className="composer-bar fixed inset-x-0 z-40 border-t px-3 pb-3 pt-2.5 backdrop-blur-xl"
+        style={{
+          borderColor: "var(--hairline)",
+          background: "var(--surface)",
+          bottom:
+            keyboardInset > 0
+              ? `${keyboardInset}px`
+              : "calc(var(--tabbar) + env(safe-area-inset-bottom))",
+        }}
       >
-        {dictationHint && (
-          <p className="micro flex items-center gap-1.5 px-1 pb-2">
+        {(voiceState === "unsupported" || voiceState === "error") && (
+          <p className="micro px-1 pb-2">
+            {voiceState === "unsupported"
+              ? "In-app voice is not available in this browser. You can still type your message."
+              : "Voice stopped. Check microphone access and try again."}
+          </p>
+        )}
+        {voiceState === "listening" && (
+          <p className="warn-text flex items-center gap-1.5 px-1 pb-2" aria-live="polite">
             <MicIcon size={14} />
-            Tap the microphone on your keyboard, then say it out loud.
+            Listening. Tap the microphone when you are finished.
           </p>
         )}
         <div className="flex items-center gap-2">
           <button
-            className="icon-btn shrink-0"
-            style={{ color: "var(--accent)", borderColor: dictationHint ? "var(--accent)" : undefined }}
-            onClick={startDictation}
-            aria-label="Speak it with your keyboard microphone"
+            className={`icon-btn shrink-0 ${voiceState === "listening" ? "warn-text" : ""}`}
+            style={voiceState === "listening" ? { borderColor: "var(--warn)" } : undefined}
+            onClick={() => void toggleVoice()}
+            disabled={voiceState === "requesting"}
+            aria-label={
+              voiceState === "listening"
+                ? "Stop voice input"
+                : voiceState === "requesting"
+                  ? "Requesting microphone access"
+                  : "Start voice input"
+            }
+            aria-pressed={voiceState === "listening"}
           >
             <MicIcon />
           </button>

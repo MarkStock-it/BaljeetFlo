@@ -55,11 +55,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       .catch(() => router.replace("/"));
   }, [router]);
 
-  if (!checked) return <main className="h-[100dvh]" />;
+  if (!checked) return <main className="h-[100svh]" />;
 
   return (
     <div
-      className="app-shell flex h-[100dvh] min-h-0 max-h-[100dvh] flex-col overflow-hidden"
+      className="app-shell flex h-[100svh] min-h-0 max-h-[100svh] flex-col overflow-hidden"
       style={{ paddingTop: "env(safe-area-inset-top)" }}
     >
       {/* The page owns the space above the bar and scrolls inside it. The bar
