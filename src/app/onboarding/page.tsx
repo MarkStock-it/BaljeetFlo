@@ -33,7 +33,7 @@ export default function OnboardingPage() {
       const res = await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ geminiApiKey: apiKey.trim() }),
+        body: JSON.stringify({ geminiApiKey: apiKey }),
       });
       if (res.ok) setKeyState("valid");
       else {
@@ -204,11 +204,11 @@ export default function OnboardingPage() {
             Bring your own AI
           </h1>
           <p className="sub mt-2 mb-6 max-w-[34ch]">
-            Paste a Gemini API key. I check it before saving, and it&apos;s encrypted from that moment on.
+            Paste a Gemini API key. New ones start with AQ. and are long, so copy the whole thing. I check it before saving, and it&apos;s encrypted from that moment on.
           </p>
           <input
             className="field"
-            placeholder="AIza…"
+            placeholder="AQ.… or AIza…"
             value={apiKey}
             onChange={(e) => {
               setApiKey(e.target.value);
@@ -217,6 +217,7 @@ export default function OnboardingPage() {
             }}
             autoCapitalize="none"
             autoCorrect="off"
+            spellCheck={false}
             aria-label="Gemini API key"
           />
           <div className="mt-3 flex items-center gap-3">

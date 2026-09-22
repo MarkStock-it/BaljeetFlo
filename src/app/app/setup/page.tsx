@@ -292,14 +292,15 @@ export default function SetupPage() {
           )}
         </div>
         <p className="sub mt-3 text-[14px] leading-relaxed">
-          BudgetFlow runs on your own Gemini key. It&apos;s checked against Google before it&apos;s saved
-          and encrypted from that moment on. Nothing about your spending is used to train anything.
+          BudgetFlow runs on your own Gemini key. New keys from AI Studio start with AQ. and are long,
+          so paste the whole thing. It&apos;s checked against Google before it&apos;s saved and encrypted
+          from that moment on. Nothing about your spending is used to train anything.
         </p>
         <div className="mt-4 flex gap-2">
           <input
             type="password"
             className="field"
-            placeholder="Paste a Gemini API key"
+            placeholder="AQ.… or AIza…"
             value={newKey}
             onChange={(e) => {
               setNewKey(e.target.value);
@@ -307,6 +308,7 @@ export default function SetupPage() {
             }}
             autoCapitalize="none"
             autoCorrect="off"
+            spellCheck={false}
           />
           <button
             className="btn-primary shrink-0 px-5"

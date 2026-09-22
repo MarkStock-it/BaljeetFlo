@@ -25,9 +25,9 @@ export async function POST(req: Request) {
   if (body.reminderHour !== undefined) patch.reminderHour = body.reminderHour;
 
   if (body.geminiApiKey !== undefined) {
-    const ok = await validateKey(body.geminiApiKey);
-    if (!ok) return NextResponse.json({ error: "Gemini key is invalid or quota is unavailable." }, { status: 400 });
-    patch.geminiApiKeyEnc = encryptSecret(body.geminiApiKey);
+    const check = await validateKey(body.geminiApiKey);
+    if (!check.ok) return NextResponse.json({ error: check.message }, { status: 400 });
+    patch.geminiApiKeyEnc = encryptSecret(check.clean);
   }
 
   if (Object.keys(patch).length) await store.updateUser(user.id, patch);
