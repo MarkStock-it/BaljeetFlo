@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckIcon } from "@/components/icons";
+import { CheckIcon, TrashIcon } from "@/components/icons";
 
 type Step = 0 | 1 | 2 | 3 | 4;
 
@@ -102,9 +102,9 @@ export default function OnboardingPage() {
           </p>
           <div className="space-y-3">
             {fixed.map((f, i) => (
-              <div key={i} className="card-solid flex gap-3 p-4">
+              <div key={i} className="card-solid flex items-center gap-3 p-4">
                 <input
-                  className="w-1/2 bg-transparent text-[16px] font-semibold outline-none"
+                  className="min-w-0 flex-1 bg-transparent text-[16px] font-semibold outline-none"
                   value={f.name}
                   placeholder="Name"
                   aria-label="Cost name"
@@ -112,12 +112,20 @@ export default function OnboardingPage() {
                 />
                 <input
                   inputMode="decimal"
-                  className="num w-1/2 bg-transparent text-right text-[16px] outline-none"
+                  className="num w-20 shrink-0 bg-transparent text-right text-[16px] outline-none"
                   value={f.amount}
                   placeholder="0"
                   aria-label="Cost amount"
                   onChange={(e) => setFixed(fixed.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))}
                 />
+                <button
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+                  style={{ color: "var(--ink-3)" }}
+                  onClick={() => setFixed(fixed.filter((_, j) => j !== i))}
+                  aria-label={`Remove ${f.name || "cost"}`}
+                >
+                  <TrashIcon size={16} />
+                </button>
               </div>
             ))}
             <button className="chip" onClick={() => setFixed([...fixed, { name: "", amount: "" }])}>
@@ -157,9 +165,9 @@ export default function OnboardingPage() {
           </p>
           <div className="space-y-3">
             {cats.map((c, i) => (
-              <div key={i} className="card-solid flex gap-3 p-4">
+              <div key={i} className="card-solid flex items-center gap-3 p-4">
                 <input
-                  className="w-1/2 bg-transparent text-[16px] font-semibold outline-none"
+                  className="min-w-0 flex-1 bg-transparent text-[16px] font-semibold outline-none"
                   value={c.name}
                   placeholder="Category"
                   aria-label="Category name"
@@ -167,12 +175,20 @@ export default function OnboardingPage() {
                 />
                 <input
                   inputMode="decimal"
-                  className="num w-1/2 bg-transparent text-right text-[16px] outline-none"
+                  className="num w-20 shrink-0 bg-transparent text-right text-[16px] outline-none"
                   value={c.monthlyCap}
                   placeholder="Monthly cap"
                   aria-label="Category cap"
                   onChange={(e) => setCats(cats.map((x, j) => (j === i ? { ...x, monthlyCap: e.target.value } : x)))}
                 />
+                <button
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+                  style={{ color: "var(--ink-3)" }}
+                  onClick={() => setCats(cats.filter((_, j) => j !== i))}
+                  aria-label={`Remove ${c.name || "category"}`}
+                >
+                  <TrashIcon size={16} />
+                </button>
               </div>
             ))}
             <button className="chip" onClick={() => setCats([...cats, { name: "", monthlyCap: "" }])}>
