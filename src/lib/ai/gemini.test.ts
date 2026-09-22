@@ -125,6 +125,22 @@ test("403 and 429 map to their own guidance with codes", async () => {
   assert.ok(!q.ok && /429/.test(q.message) && /quota/i.test(q.message));
 });
 
+test("a stalled upstream fails fast instead of holding the request open", async () => {
+  globalThis.fetch = (async () => {
+    throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+  }) as typeof fetch;
+
+  const r = await validateKey("AQ.Ab8RN6verylongkeyvalue0000000000000000");
+  assert.equal(r.ok, false);
+  assert.ok(!r.ok && /reach Google/.test(r.message));
+
+  resetModelCache();
+  await assert.rejects(
+    () => geminiJson({ apiKey: "AQ.Ab8RN6verylongkeyvalue0000000000000000", prompt: "x", schema: { type: "object" } }),
+    (e: unknown) => e instanceof GeminiError && e.status === 503
+  );
+});
+
 test("geminiJson returns parsed JSON and types failures", async () => {
   mockFetch(() => ok({ candidates: [{ content: { parts: [{ text: '{"amount":140}' }] } }] }));
   const parsed = await geminiJson<{ amount: number }>({

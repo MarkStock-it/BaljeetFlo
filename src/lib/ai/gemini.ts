@@ -13,6 +13,9 @@ const BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const MODEL_CHAIN = ["gemini-3.6-flash", "gemini-2.5-flash"];
 let resolvedModel: string | null = null;
 
+/** Per-attempt ceiling. The chain tries at most two models. */
+const REQUEST_TIMEOUT_MS = 15_000;
+
 /** Testing seam: forget which model answered, so a test can walk the chain. */
 export function resetModelCache() {
   resolvedModel = null;
@@ -91,6 +94,9 @@ async function callChain(apiKey: string, body: unknown): Promise<Response> {
       method: "POST",
       headers: authHeaders(apiKey),
       body: JSON.stringify(body),
+      // A stalled upstream must never hold a user's request open. A timeout
+      // throws, which every caller already handles as a network failure.
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!WALK_ON.has(res.status)) {
       resolvedModel = model;
