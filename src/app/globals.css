@@ -2,26 +2,469 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  BudgetFlow design contract
+  ──────────────────────────
+  Base:     #FAFAF8 paper · #1C1C1E ink · #6E6E73 secondary · 8% hairline
+  Accents:  #0A84FF confirm · #E8890C trade-offs (the only warning color) · #30D158 refunds
+  Type:     system stack (SF on Apple), sentence case, tabular numerals for money
+  Radii:    22 surfaces · 14 controls · 10 inner — varied by hierarchy
+  Motion:   one page-load moment (hero), all other motion answers user actions
+*/
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --paper: #fafaf8;
+  --paper-2: #f2f1ee;
+  --ink: #1c1c1e;
+  --ink-2: #6e6e73;
+  --ink-3: #aeaeb2;
+  --hairline: rgba(0, 0, 0, 0.08);
+  --hairline-strong: rgba(0, 0, 0, 0.14);
+  --accent: #0a84ff;
+  --warn: #e8890c;
+  --good: #30d158;
+  --cash-1: #3f7d4f;
+  --cash-2: #57976a;
+  --cash-3: #67a875;
+  --cash-cap: #8cc79b;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-solid: #ffffff;
+  --scrim: rgba(0, 0, 0, 0.32);
+  --r-surface: 22px;
+  --r-control: 14px;
+  --r-inner: 10px;
+  /* Height of the tab bar content box. Overlay bars (composer, save bar) sit
+     exactly on top of it, safe-area inset included. */
+  --tabbar: 56px;
+  /* Data-viz palette only — the allocation bar. Never used for actions. */
+  --seg-1: #6b7f9e;
+  --seg-2: #7f9c8b;
+  --seg-3: #b09a72;
+  --seg-4: #9c8ba8;
+  --seg-5: #7fa3b0;
+  --seg-6: #a98b8b;
+  /* Money flowing to a plan: same family as the cash pile, quieter. */
+  --plan: #4f8b60;
+  --plan-soft: rgba(79, 139, 96, 0.14);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --paper: #0d0d0f;
+    --paper-2: #141416;
+    --ink: #f5f5f7;
+    --ink-2: #98989d;
+    --ink-3: #636366;
+    --hairline: rgba(255, 255, 255, 0.1);
+    --hairline-strong: rgba(255, 255, 255, 0.18);
+    --surface: rgba(24, 24, 27, 0.72);
+    --surface-solid: #1c1c1e;
+    --scrim: rgba(0, 0, 0, 0.55);
+    --cash-1: #4c8f5e;
+    --cash-2: #63a874;
+    --cash-3: #72b47f;
+    --cash-cap: #93cfa1;
+    --seg-1: #7d92b3;
+    --seg-2: #8fb09c;
+    --seg-3: #c3ab80;
+    --seg-4: #ae9cbb;
+    --seg-5: #8fb5c4;
+    --seg-6: #bd9c9c;
+    --plan: #66ab79;
+    --plan-soft: rgba(102, 171, 121, 0.18);
   }
 }
 
+html,
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    Inter, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
+button {
+  touch-action: manipulation;
+}
+
+input,
+textarea {
+  /* Stop iOS Safari zooming the page on focus */
+  font-size: 16px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@layer components {
+  .card {
+    background: var(--surface);
+    backdrop-filter: blur(20px) saturate(1.5);
+    -webkit-backdrop-filter: blur(20px) saturate(1.5);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-surface);
+  }
+
+  .card-solid {
+    background: var(--surface-solid);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-surface);
+  }
+
+  .hero-num {
+    font-size: 68px;
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* inline-flex so the same class works on a <button> and on an <a>/Link
+     (a bare anchor would collapse to inline and ignore its width). */
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: var(--r-control);
+    font-weight: 600;
+    font-size: 16px;
+    padding: 14px 20px;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+  }
+  .btn-primary:active {
+    transform: scale(0.97);
+    opacity: 0.9;
+  }
+  .btn-primary:disabled {
+    opacity: 0.4;
+    transform: none;
+  }
+
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-control);
+    font-weight: 600;
+    font-size: 16px;
+    padding: 14px 20px;
+    color: var(--ink);
+    background: transparent;
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+  .btn-ghost:active {
+    transform: scale(0.97);
+    background: var(--paper-2);
+  }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--r-control);
+    border: 1px solid var(--hairline);
+    color: var(--ink-2);
+    background: var(--surface);
+    transition: transform 0.15s ease;
+  }
+  .icon-btn:active {
+    transform: scale(0.94);
+  }
+
+  .tabbar {
+    height: var(--tabbar);
+  }
+
+  .tabbar-item {
+    color: var(--ink-3);
+    font-size: 10.5px;
+    font-weight: 500;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 8px 0 6px;
+  }
+  .tabbar-item[data-active="true"] {
+    color: var(--accent);
+  }
+
+  .chip {
+    border: 1px solid var(--hairline-strong);
+    border-radius: 999px;
+    padding: 7px 14px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--ink);
+    background: var(--surface);
+    transition: transform 0.15s ease;
+  }
+  .chip:active {
+    transform: scale(0.96);
+  }
+
+  .sub {
+    color: var(--ink-2);
+    font-size: 14px;
+  }
+
+  .micro {
+    color: var(--ink-3);
+    font-size: 12px;
+  }
+
+  .warn-text {
+    color: var(--warn);
+  }
+
+  .good-text {
+    color: var(--good);
+  }
+
+  .field {
+    width: 100%;
+    border-radius: var(--r-control);
+    border: 1px solid var(--hairline-strong);
+    background: transparent;
+    padding: 14px 16px;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+  .field:focus {
+    border-color: var(--accent);
+  }
+
+  /* Same family as .field but flows inline (composer) instead of filling width */
+  .input {
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-control);
+    background: transparent;
+    padding: 12px 16px;
+    font-size: 16px;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+  .input:focus {
+    border-color: var(--accent);
+  }
+  .input::placeholder {
+    color: var(--ink-3);
+  }
+
+  /* Row dividers inside cards — token-colored, dark-mode safe */
+  .rows > * + * {
+    border-top: 1px solid var(--hairline);
+  }
+
+  .hairline-b {
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  /* ── Allocation bar ────────────────────────────────────────────────────
+     One thin bar that shows the whole budget: every flexible category, what
+     the plans have reserved, and what nobody has claimed yet. */
+  .meter {
+    display: flex;
+    gap: 2px;
+    height: 10px;
+    width: 100%;
+    padding: 0;
+    border-radius: 999px;
+    background: var(--paper-2);
+    overflow: hidden;
+  }
+  .meter-seg {
+    height: 100%;
+    min-width: 3px;
+    border-radius: 3px;
+    transition: width 0.45s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  .meter-seg[data-empty="true"] {
+    background: var(--hairline-strong);
+  }
+
+  /* ── Thin progress (plans) ───────────────────────────────────────────── */
+  .bar {
+    height: 6px;
+    width: 100%;
+    border-radius: 999px;
+    background: var(--paper-2);
+    overflow: hidden;
+  }
+  .bar > i {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--plan);
+    transition: width 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+
+  /* ── Rows: the iOS grouped-list pattern ──────────────────────────────── */
+  .listrow {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    text-align: left;
+    background: none;
+    transition: background 0.15s ease;
+  }
+  .listrow:active {
+    background: var(--paper-2);
+  }
+  .listrow .chev {
+    color: var(--ink-3);
+    flex-shrink: 0;
+  }
+
+  /* Editable money value sitting inline in a row — no chrome, just text */
+  .cap-input {
+    width: 7.5rem;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid transparent;
+    padding: 4px 0;
+    text-align: right;
+    font-size: 16px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+  .cap-input:focus {
+    border-bottom-color: var(--accent);
+  }
+  .cap-input::placeholder {
+    color: var(--ink-3);
+    font-weight: 400;
+  }
+
+  /* ── Bottom sheets ───────────────────────────────────────────────────── */
+  .sheet-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: flex-end;
+    background: var(--scrim);
+    animation: fade 0.2s ease both;
+  }
+  .sheet-panel {
+    margin: 0 auto 16px;
+    width: 100%;
+    max-width: 28rem;
+    /* Never taller than the phone: a long sheet scrolls instead of clipping
+       its own save button. */
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 24px;
+    background: var(--surface-solid);
+    border: 1px solid var(--hairline);
+    border-radius: 28px;
+    animation: sheet-in 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+    }
+  }
+
+  /* ── Small status tag ────────────────────────────────────────────────── */
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 999px;
+    padding: 3px 9px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.005em;
+  }
+  .tag[data-tone="good"] {
+    background: var(--plan-soft);
+    color: var(--plan);
+  }
+  .tag[data-tone="warn"] {
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+    color: var(--warn);
+  }
+  .tag[data-tone="quiet"] {
+    background: var(--paper-2);
+    color: var(--ink-2);
+  }
+
+  /* ── Explainers inside the guide ─────────────────────────────────────── */
+  .figure {
+    border-radius: var(--r-inner);
+    border: 1px solid var(--hairline);
+    background: var(--paper-2);
+    padding: 18px;
+  }
+  .formula {
+    font-variant-numeric: tabular-nums;
+    font-size: 15px;
+    line-height: 1.9;
+  }
+  .formula .op {
+    color: var(--ink-3);
+  }
+  .formula .rule {
+    border-top: 1px solid var(--hairline);
+    margin-top: 5px;
+    padding-top: 5px;
+  }
+
+  /* Hero entrance — the one orchestrated page-load moment */
+  .rise {
+    animation: rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 }
