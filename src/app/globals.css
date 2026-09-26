@@ -251,6 +251,123 @@ textarea {
     transform: scale(0.94);
   }
 
+  /* ── Blob FAB ──────────────────────────────────────────────────────────
+     The single capture control. Its three blobs spring out of the centre on
+     hold and fall back on release; the wrapper is the orbit origin. */
+  .blob-fab-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 68px;
+    height: 68px;
+  }
+
+  .blob-fab {
+    position: relative;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 68px;
+    height: 68px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 12px 26px color-mix(in srgb, var(--accent) 36%, transparent),
+      0 3px 8px rgba(0, 0, 0, 0.18);
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    cursor: grab;
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .blob-fab[data-open="true"],
+  .blob-fab[data-pressed="true"] {
+    transform: scale(0.9);
+    cursor: grabbing;
+  }
+
+  /* The idle glyph: three dots, one already kicked out to the top. */
+  .blob-glyph {
+    position: relative;
+    display: block;
+    width: 26px;
+    height: 26px;
+  }
+  .blob-glyph i {
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+  .blob-glyph i:nth-child(1) {
+    left: 50%;
+    top: 0;
+    transform: translateX(-50%);
+  }
+  .blob-glyph i:nth-child(2) {
+    left: 0;
+    bottom: 2px;
+  }
+  .blob-glyph i:nth-child(3) {
+    right: 0;
+    bottom: 2px;
+  }
+
+  /* Orbit slot: collapses to the centre when shut, springs out when open. */
+  .blob-pos {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 3;
+    transform: translate(-50%, -50%) scale(0.35);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.16s ease;
+    will-change: transform, opacity;
+  }
+  .blob-pos[data-open="true"] {
+    transform: translate(-50%, -50%) translate(var(--bx, 0), var(--by, 0)) scale(1);
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .blob-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 999px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--surface-solid) 80%, var(--accent));
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.16);
+    transition: transform 0.16s ease, background 0.16s ease;
+  }
+  .blob-btn:hover,
+  .blob-btn[data-hover="true"] {
+    transform: scale(1.12);
+    background: color-mix(in srgb, var(--surface-solid) 62%, var(--accent));
+  }
+  .blob-btn:active {
+    transform: scale(1.02);
+  }
+
+  .blob-caption {
+    position: absolute;
+    left: 50%;
+    top: calc(50% + 33px);
+    transform: translateX(-50%);
+    white-space: nowrap;
+    color: var(--ink-2);
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+
   .tabbar {
     height: var(--tabbar);
   }

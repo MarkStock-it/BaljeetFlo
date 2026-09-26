@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   MicIcon,
   ReceiptIcon,
-  SendIcon,
   CheckIcon,
   SwapIcon,
   CameraIcon,
@@ -17,6 +16,7 @@ import {
 } from "@/components/icons";
 import { safeUuid } from "@/lib/uuid";
 import { CashPile } from "@/components/CashPile";
+import { BlobFab } from "@/components/BlobFab";
 import { refreshBudget, useBudgetSnapshot } from "@/lib/budget-snapshot";
 import { warmTabCaches } from "@/lib/tab-cache";
 
@@ -111,6 +111,8 @@ export default function ChatHome() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [input, setInput] = useState("");
+  /** True only while the user has chosen to type: the button owns the field. */
+  const [composing, setComposing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [voiceState, setVoiceState] = useState<
     "idle" | "requesting" | "listening" | "unsupported" | "error"
@@ -220,6 +222,11 @@ export default function ChatHome() {
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, busy]);
 
+  // The field is mounted on demand, so focus has to follow the mount.
+  useEffect(() => {
+    if (composing) inputRef.current?.focus();
+  }, [composing]);
+
   function pushAssistant(reply: string, cards: Card[] | undefined) {
     const first: Msg = { id: safeUuid(), role: "assistant", text: reply, card: cards?.[0] };
     setMessages((m) => [
@@ -244,6 +251,7 @@ export default function ChatHome() {
       setMessages((m) => [...m, { id: safeUuid(), role: "user", text: message }]);
     }
     setInput("");
+    setComposing(false);
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -540,7 +548,12 @@ export default function ChatHome() {
       </section>
 
       {/* Feed */}
-      <div ref={feedRef} className="scrollbar-none min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-none px-4 pb-28">
+      <div
+        ref={feedRef}
+        className={`scrollbar-none min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-none px-4 ${
+          composing ? "pb-48" : "pb-32"
+        }`}
+      >
         {loaded && messages.length === 0 && (
           <div className="card mx-auto max-w-[85%] p-5 text-center">
             <p className="text-[15px] leading-relaxed">
@@ -689,14 +702,14 @@ export default function ChatHome() {
 
       {/* Composer */}
       <div
-        className="composer-bar fixed inset-x-0 z-40 border-t px-3 pb-3 pt-2.5 backdrop-blur-xl"
+        className="composer-bar fixed inset-x-0 z-40 px-3 pb-3"
         style={{
-          borderColor: "var(--hairline)",
-          background: "var(--surface)",
+          // Lifted clear of the tab bar: the lower two blobs orbit 46px below
+          // the button's centre, which used to land them under the nav.
           bottom:
             keyboardInset > 0
               ? `${keyboardInset}px`
-              : "calc(var(--tabbar) + env(safe-area-inset-bottom))",
+              : "calc(var(--tabbar) + env(safe-area-inset-bottom) + 44px)",
         }}
       >
         {(voiceState === "unsupported" || voiceState === "error") && (
@@ -712,64 +725,47 @@ export default function ChatHome() {
             Listening. Tap the microphone when you are finished.
           </p>
         )}
-        <div className="flex items-center gap-2">
-          <button
-            className={`icon-btn shrink-0 ${voiceState === "listening" ? "warn-text" : ""}`}
-            style={voiceState === "listening" ? { borderColor: "var(--warn)" } : undefined}
-            onClick={() => void toggleVoice()}
-            disabled={voiceState === "requesting"}
-            aria-label={
-              voiceState === "listening"
-                ? "Stop voice input"
-                : voiceState === "requesting"
-                  ? "Requesting microphone access"
-                  : "Start voice input"
-            }
-            aria-pressed={voiceState === "listening"}
-          >
-            <MicIcon />
-          </button>
-          <input
-            ref={inputRef}
-            className="input min-w-0 flex-1"
-            type="text"
-            inputMode="text"
-            autoComplete="off"
-            autoCorrect="on"
-            autoCapitalize="sentences"
-            spellCheck
-            placeholder="Coffee 180, or ask me anything"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onFocus={() =>
-              window.requestAnimationFrame(() => {
-                window.scrollTo({ top: 0, behavior: "auto" });
-                document.documentElement.scrollTop = 0;
-                document.body.scrollTop = 0;
-              })
-            }
-            onKeyDown={(e) => e.key === "Enter" && send(input)}
-            enterKeyHint="send"
-          />
-          <button
-            className="icon-btn shrink-0"
-            aria-label="Log a receipt"
-            onClick={() => {
+        {/* The button is the entire composer, floating free with nothing behind
+            it. Typing is just one of its three outcomes, so the field grows out
+            of it when chosen and collapses again once the message is sent. */}
+        <div className="flex flex-col items-center gap-3">
+          {composing && (
+            <input
+              ref={inputRef}
+              className="input w-full"
+              type="text"
+              inputMode="text"
+              autoComplete="off"
+              autoCorrect="on"
+              autoCapitalize="sentences"
+              spellCheck
+              placeholder="Coffee 180, or ask me anything"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") send(input);
+                if (e.key === "Escape") {
+                  setComposing(false);
+                  setInput("");
+                }
+              }}
+              enterKeyHint="send"
+              aria-label="Message"
+            />
+          )}
+          <BlobFab
+            onMic={() => {
+              // Dictation writes into the field, so show it before listening.
+              setComposing(true);
+              void toggleVoice();
+            }}
+            onText={() => setComposing(true)}
+            onCamera={() => {
               setSheetError(null);
               setSheet("choose");
             }}
-          >
-            <ReceiptIcon />
-          </button>
-          <button
-            className="icon-btn shrink-0"
-            style={{ color: "var(--accent)", borderColor: "var(--accent)" }}
-            aria-label="Send"
-            onClick={() => send(input)}
-            disabled={busy || !input.trim()}
-          >
-            <SendIcon />
-          </button>
+            listening={voiceState === "listening"}
+          />
           <input
             ref={fileRef}
             type="file"

@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckIcon, TrashIcon } from "@/components/icons";
+import { BlobFab } from "@/components/BlobFab";
 
-type Step = 0 | 1 | 2 | 3 | 4;
+type Step = 0 | 1 | 2 | 3 | 4 | 5;
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -75,7 +76,7 @@ export default function OnboardingPage() {
   return (
     <main className="flex min-h-[100dvh] flex-col px-6 py-14">
       <p className="micro">
-        Step {step + 1} of 5
+        Step {step + 1} of 6
       </p>
 
       {step === 0 && (
@@ -246,13 +247,35 @@ export default function OnboardingPage() {
         </>
       )}
 
+      {step === 5 && (
+        <>
+          <h1 className="mt-2 text-[28px] font-bold leading-tight tracking-[-0.02em]">
+            One button, three ways in
+          </h1>
+          <p className="sub mt-2 mb-2 max-w-[34ch]">
+            Hold the button, slide to what you want, and let go. It is the only control you need to
+            log money.
+          </p>
+          <div className="relative flex h-[220px] items-center justify-center">
+            <BlobFab demo />
+          </div>
+          <div className="figure">
+            <p className="text-[14px] leading-relaxed">
+              <strong>Voice</strong> to speak a spend, <strong>Type</strong> to write it, and{" "}
+              <strong>Receipt</strong> to read a photo. Typing works from the field under the button,
+              and the return key logs it.
+            </p>
+          </div>
+        </>
+      )}
+
       <div className="mt-auto flex gap-3 pt-10">
         {step > 0 && (
           <button className="btn-ghost flex-1" onClick={() => setStep((step - 1) as Step)}>
             Back
           </button>
         )}
-        {step < 4 ? (
+        {step < 5 ? (
           <button
             className="btn-primary flex-1"
             onClick={() => setStep((step + 1) as Step)}
