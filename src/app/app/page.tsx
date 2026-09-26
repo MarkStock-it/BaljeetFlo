@@ -779,6 +779,13 @@ export default function ChatHome() {
                   setInput("");
                 }
               }}
+              onBlur={() => {
+                // Dismissing the keyboard moves focus off the field, and an
+                // unfocused field is dead space parked over the button. Put it
+                // away. The draft stays in state, so choosing Type again brings
+                // the words back instead of silently swallowing them.
+                setComposing(false);
+              }}
               enterKeyHint="send"
               aria-label="Message"
             />
