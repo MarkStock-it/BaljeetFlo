@@ -233,6 +233,13 @@ export const WalletIcon = ({ size = 18, className }: P) => (
   </svg>
 );
 
+export const DownloadIcon = ({ size = 18, className }: P) => (
+  <svg {...base(size)} className={className}>
+    <path d="M12 3.5v10.5M7.8 10.2 12 14.4l4.2-4.2" />
+    <path d="M4.5 17.5v2a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1v-2" />
+  </svg>
+);
+
 export const ImageIcon = ({ size = 20, className }: P) => (
   <svg {...base(size)} className={className}>
     <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />

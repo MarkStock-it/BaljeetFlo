@@ -12,6 +12,7 @@
     "harness": "tsx scripts/cashpile-harness.tsx"
   },
   "dependencies": {
+    "exceljs": "^4.4.0",
     "jose": "^6.2.12",
     "mariadb": "^3.5.4",
     "next": "14.2.35",

@@ -10,6 +10,7 @@ import {
   CalendarIcon,
   CheckIcon,
   ChevronRightIcon,
+  DownloadIcon,
   IncomeIcon,
   LockIcon,
   RepeatIcon,
@@ -336,6 +337,30 @@ export default function SetupPage() {
             {busy ? "Generating…" : "Create their access"}
           </button>
         )}
+      </section>
+
+      {/* ── Export ─────────────────────────────────────────────────────── */}
+      <section className="card-solid mt-4 p-6">
+        <div className="flex items-center gap-3">
+          <span
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full"
+            style={{ background: "var(--paper-2)", color: "var(--ink-2)" }}
+          >
+            <DownloadIcon size={17} />
+          </span>
+          <h2 className="text-[17px] font-bold">Take your data with you</h2>
+        </div>
+        <p className="sub mt-3 text-[14px] leading-relaxed">
+          Download everything as a formatted Excel workbook: a summary, every transaction, your
+          categories, plans, scheduled payments and the daily pace. Opens straight in Excel, Numbers
+          or Google Sheets.
+        </p>
+        {/* A plain link, not a fetch: the route answers with a file, and the
+            browser owns the download. */}
+        <a href="/api/export" download className="btn-ghost mt-4 inline-flex items-center gap-2">
+          <DownloadIcon size={16} />
+          Download the workbook
+        </a>
       </section>
 
       <p className="micro mt-6 px-1 leading-relaxed">
