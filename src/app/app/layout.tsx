@@ -77,8 +77,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       >
         {children}
       </div>
+      {/* Named so the chat page can retire it while the keyboard is open. */}
       <nav
-        className="z-40 shrink-0 border-t backdrop-blur-xl"
+        className="tabbar-nav z-40 shrink-0 border-t backdrop-blur-xl"
         style={{
           borderColor: "var(--hairline)",
           background: "var(--surface)",

@@ -108,15 +108,27 @@ button {
 
 .chat-screen {
   isolation: isolate;
-}
+}  .composer-bar {
+    left: 50%;
+    width: min(100%, 28rem);
+    transform: translateX(-50%);
+    transition: bottom 0.22s ease;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
 
-.composer-bar {
-  left: 50%;
-  width: min(100%, 28rem);
-  transform: translateX(-50%);
-  transition: bottom 0.22s ease;
-  padding-bottom: max(12px, env(safe-area-inset-bottom));
-}
+  /*
+    Keyboard up: the tab bar steps aside and the composer takes the bottom of
+    the visible area. Navigation has nothing to offer mid-sentence, and leaving
+    the bar in place squeezed the field and the button into the few pixels above
+    the keyboard. The home-indicator inset is dropped too, because the keyboard
+    is covering that strip anyway and padding against it just floats the field.
+  */
+  html.kb-open .tabbar-nav {
+    display: none;
+  }
+  html.kb-open .composer-bar {
+    padding-bottom: 12px;
+  }
 
 @media (prefers-reduced-motion: reduce) {
   .composer-bar {

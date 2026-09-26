@@ -118,6 +118,8 @@ export default function ChatHome() {
     "idle" | "requesting" | "listening" | "unsupported" | "error"
   >("idle");
   const [keyboardInset, setKeyboardInset] = useState(0);
+  /** True whenever the on-screen keyboard is eating part of the screen. */
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [adjusting, setAdjusting] = useState<Card | null>(null);
   const [sheet, setSheet] = useState<SheetStep | null>(null);
   const [pendingDraft, setPendingDraft] = useState<ReceiptDraft | null>(null);
@@ -441,28 +443,51 @@ export default function ChatHome() {
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
-    const updateKeyboardInset = () => {
-      // Capture the pre-keyboard layout height once. Both innerHeight and
-      // clientHeight can shrink in mobile Safari after focus, which otherwise
-      // makes the keyboard look like it never opened.
-      if (layoutViewportHeightRef.current === null) {
-        layoutViewportHeightRef.current = Math.max(
-          document.documentElement.clientHeight,
-          window.innerHeight
-        );
-      }
-      const layoutHeight = layoutViewportHeightRef.current;
-      const covered = Math.max(0, layoutHeight - viewport.height - viewport.offsetTop);
-      setKeyboardInset(Math.round(covered));
+
+    // Browsers disagree about what the keyboard does. Chrome on Android shrinks
+    // the layout viewport, so the shell already ends above the keyboard and
+    // there is nothing left to correct. Others leave the layout alone and just
+    // cover it, which does need the bar lifted. So measure the covered amount
+    // against the LIVE height: comparing against a remembered pre-keyboard
+    // height double-counts the keyboard in the shrinking case, which flung the
+    // bar above the tab bar and made the browser scroll the page up to find the
+    // focused field.
+    const updateKeyboard = () => {
+      layoutViewportHeightRef.current = Math.max(
+        layoutViewportHeightRef.current ?? 0,
+        document.documentElement.clientHeight,
+        window.innerHeight
+      );
+      const full = layoutViewportHeightRef.current;
+      const covered = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      const shrunk = Math.max(0, full - window.innerHeight);
+
+      // A soft keyboard is always tall; browser chrome tweaks are not. The gap
+      // has to clear that line to count, or a shrinking address bar would read
+      // as a keyboard and hide the tab bar for no reason.
+      const open = covered > 150 || shrunk > 150;
+      setKeyboardOpen(open);
+      setKeyboardInset(open && covered > 150 ? Math.round(covered) : 0);
     };
-    updateKeyboardInset();
-    viewport.addEventListener("resize", updateKeyboardInset);
-    viewport.addEventListener("scroll", updateKeyboardInset);
+
+    updateKeyboard();
+    viewport.addEventListener("resize", updateKeyboard);
+    viewport.addEventListener("scroll", updateKeyboard);
     return () => {
-      viewport.removeEventListener("resize", updateKeyboardInset);
-      viewport.removeEventListener("scroll", updateKeyboardInset);
+      viewport.removeEventListener("resize", updateKeyboard);
+      viewport.removeEventListener("scroll", updateKeyboard);
     };
   }, []);
+
+  // The chat page is the only place that types, so it owns the keyboard flag.
+  // The tab bar reads it from the root element and steps aside, because a
+  // navigation bar has nothing to offer while the keyboard is up and it was
+  // competing with the composer for the same few pixels.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("kb-open", keyboardOpen);
+    return () => root.classList.remove("kb-open");
+  }, [keyboardOpen]);
 
   async function onReceipt(file: File) {
     if (!file) return;
@@ -704,12 +729,14 @@ export default function ChatHome() {
       <div
         className="composer-bar fixed inset-x-0 z-40 px-3 pb-3"
         style={{
-          // Lifted clear of the tab bar: the lower two blobs orbit 46px below
-          // the button's centre, which used to land them under the nav.
-          bottom:
-            keyboardInset > 0
-              ? `${keyboardInset}px`
-              : "calc(var(--tabbar) + env(safe-area-inset-bottom) + 44px)",
+          // With the keyboard up, sit on the bottom of whatever is still
+          // visible (and lift only by the covered amount when the browser
+          // overlays the keyboard instead of resizing the layout). Otherwise
+          // stay clear of the tab bar, because the lower two blobs orbit 46px
+          // below the button's centre and used to land under the nav.
+          bottom: keyboardOpen
+            ? `${keyboardInset}px`
+            : "calc(var(--tabbar) + env(safe-area-inset-bottom) + 44px)",
         }}
       >
         {(voiceState === "unsupported" || voiceState === "error") && (
@@ -729,10 +756,13 @@ export default function ChatHome() {
             it. Typing is just one of its three outcomes, so the field grows out
             of it when chosen and collapses again once the message is sent. */}
         <div className="flex flex-col items-center gap-3">
+          {/* While typing, the field takes the bottom slot so it hugs the
+              keyboard, and the button rides above it where it stays fully
+              visible instead of being clipped by whatever sits below. */}
           {composing && (
             <input
               ref={inputRef}
-              className="input w-full"
+              className="input order-2 w-full"
               type="text"
               inputMode="text"
               autoComplete="off"
